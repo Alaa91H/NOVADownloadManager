@@ -1205,6 +1205,15 @@ Item {
                                 }
 
                                 MenuItem {
+                                    visible: engineStatus === "live-recording"
+                                        || engineStatus === "live-recording-paused"
+                                        || engineStatus === "live-recording-finishing"
+                                    text: root.t("downloads.finishRecording")
+                                    enabled: root.api.connected && engineStatus !== "live-recording-finishing"
+                                    onTriggered: root.api.finishLiveRecording(taskId)
+                                }
+
+                                MenuItem {
                                     text: root.isRetryStatus(status)
                                         ? root.t("downloads.retryBeginning")
                                         : root.t("downloads.redownloadBeginning")

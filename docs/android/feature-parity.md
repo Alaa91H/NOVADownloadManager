@@ -6,7 +6,7 @@ This matrix is a roadmap and audit artifact, not a marketing claim. A capability
 
 | Status | Meaning |
 |---|---|
-| Desktop only | Exists in the current Tauri/Axum desktop host and has no Android analogue yet. |
+| Desktop only | Exists in the current Qt desktop application and has no Android analogue yet. |
 | Extracted foundation | A portable model/contract has been extracted or a narrow ABI proof exists; no end-user Android feature is implied. |
 | Android foundation | Android UI/input/lifecycle scaffolding exists, but no core task execution is wired. |
 | Implemented, unverified | Source code owns the end-to-end path, but required Android ABI/device acceptance has not run. |
@@ -29,28 +29,23 @@ This matrix is a roadmap and audit artifact, not a marketing claim. A capability
 | Scheduler/rules | Desktop daemon scheduler | Shared semantics + WorkManager/UIDT adapter | Android foundation; UIDT/WorkManager dispatch implemented | API-level/device policy tests, constraints, idempotency. |
 | Durable recovery | Desktop persistence | Android-aware durable state and storage descriptors | Planned | Process kill/force-stop/relaunch recovery tests. |
 | User-started background transfer | Desktop runtime/daemon | UIDT on API 34+ with WorkManager fallback | Android foundation; execution ownership implemented | Physical-device visible-progress and stop/resume tests. |
-| Notifications | Tauri desktop notification/tray | Android channel, progress, pause/cancel, resume-to-app intent | Android foundation; actions implemented | Permission/action and duplicate-work tests on device. |
+| Notifications | Qt desktop notification/tray integration | Android channel, progress, pause/cancel, resume-to-app intent | Android foundation; actions implemented | Permission/action and duplicate-work tests on device. |
 | App-private storage | Desktop output/data dirs | Android internal staging adapter | Android foundation; app-private staging/finalization implemented | Device resume, cleanup, integrity-failure, and process-loss tests. |
-| SAF destination | Desktop path/file dialogs | Persisted document-tree grant adapter | Planned | Grant/revocation/provider failure tests. |
-| MediaStore Downloads | Desktop filesystem destination | Pending MediaStore item then finalization | Planned | Pending/finalized/cancelled item tests. |
+| SAF destination | Desktop path/file dialogs | Persisted document-tree grant adapter | Implemented, unverified | Grant/revocation/provider failure tests on device. |
+| MediaStore Downloads | Desktop filesystem destination | Pending MediaStore item then finalization | Implemented, unverified | Pending/finalized/cancelled item tests on device. |
 | Desktop browser extension pairing | Native Messaging + loopback API | Not applicable; Android share/deep-link inputs | Android-specific replacement | Intent security and user-flow tests. |
-| Tauri/Axum local daemon | Tauri + Axum loopback server | No Android loopback control plane | Intentionally excluded | N/A; must remain excluded from Android bridge. |
+| Desktop Rust daemon | Authenticated Axum loopback service hosted by the Qt application | No Android loopback control plane | Intentionally excluded | N/A; must remain excluded from Android bridge. |
 | Native media tasks | Shared Rust extractor/codec crates; desktop daemon task execution | Android JNI resolver, encrypted selected-format intent, native progressive/HLS/static-DASH transfer, linked codec conversion, and local conversion UI | Implemented, unverified for progressive/finite-HLS/static-single-period-DASH and local conversion; live manifests, playlists, subtitles, and torrent deferred | ABI/device runtime, process-death, output playback, codec, encryption, and resource acceptance. |
 | Telegram automation | Daemon-oriented automation | Separate background integration decision | Deferred | Security, lifecycle, and policy design. |
 | Secure credential storage | Desktop keyring | Android platform-backed secure store | Planned | Secret redaction and restore behavior tests. |
 | Diagnostics/log export | Desktop diagnostics | Typed redacted snapshot + Android share flow | Planned | Secret/PII redaction and export-permission tests. |
-| Desktop updater/window/tray | Tauri plugins | Android Activity and distribution model | Desktop only | N/A; platform-specific behavior. |
+| Desktop updater/window/tray | Qt desktop integration and Rust updater services | Android Activity and distribution model | Desktop only | N/A; platform-specific behavior. |
 
-## Verified milestone boundary
+## Evidence boundary
 
-The current milestone verifies all of the following, and nothing more:
+Source implementation and device verification are tracked separately. Current source includes native Rust direct transfers, app-private staging, MediaStore/SAF publication, Android lifecycle controls, progressive media, finite HLS, static single-period DASH, and local native conversion. Playlists, live-media task scheduling, subtitles and torrent tasks remain deferred on Android. Source evidence does not replace ABI, emulator, or physical-device acceptance.
 
-1. The Android project compiles to a debug APK and passes its current JVM unit tests.
-2. The Rust `Task` and `Segment` model is shared by desktop through a re-exporting dependency.
-3. A versioned UniFFI bridge skeleton compiles and links as an `arm64-v8a` Android shared library against API 26.
-4. The Android Compose shell is native, uses Material 3, centralizes theme/icons, holds state in a ViewModel, and accepts validated text-share URLs without creating a Kotlin download implementation.
-
-The current milestone still does **not** claim physical-device verification, SAF/MediaStore storage, generated high-level UniFFI task bindings, full queue/bandwidth parity, media processing, or release-grade recovery under every OS stop condition. Native direct transfer, UIDT/WorkManager ownership, notification controls, and Compose pause/resume/cancel controls are implemented but remain below the physical-device evidence level.
+The last recorded Android build and JVM evidence applies to its recorded commit in [the Android testing strategy](testing.md). It does not validate later source changes or prove runtime behavior on a device. Re-run GitHub CI against the candidate SHA, then preserve separate emulator/device evidence for lifecycle, storage, media playback, codec processing, and process-death recovery.
 
 ## Parity measurement policy
 

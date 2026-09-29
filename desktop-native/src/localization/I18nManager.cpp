@@ -624,6 +624,7 @@ const Dictionary &english() {
         {QStringLiteral("downloads.showFolder"), QStringLiteral("Show in folder")},
         {QStringLiteral("downloads.retryBeginning"), QStringLiteral("Retry from beginning")},
         {QStringLiteral("downloads.redownloadBeginning"), QStringLiteral("Redownload from beginning")},
+        {QStringLiteral("downloads.finishRecording"), QStringLiteral("Finish recording")},
         {QStringLiteral("downloads.noMatch"), QStringLiteral("No matching downloads")},
         {QStringLiteral("downloads.noDownloads"), QStringLiteral("No downloads yet")},
         {QStringLiteral("downloads.nothingView"), QStringLiteral("Nothing in this view")},
@@ -700,7 +701,7 @@ const Dictionary &english() {
         {QStringLiteral("media.playlistItem"), QStringLiteral("Playlist item")},
         {QStringLiteral("media.daemonAnalyzing"), QStringLiteral("The daemon is analyzing the source…")},
         {QStringLiteral("media.daemonExecution"), QStringLiteral("Analysis and download execution remain inside the NOVA Engine.")},
-        {QStringLiteral("placeholder.migrating"), QStringLiteral("This workspace will be migrated independently from the legacy UI.")}
+        {QStringLiteral("placeholder.migrating"), QStringLiteral("This workspace uses the native NOVA desktop interface.")}
     };
     return values;
 }
@@ -1322,6 +1323,7 @@ const Dictionary &arabic() {
         {QStringLiteral("downloads.showFolder"), QStringLiteral("إظهار في المجلد")},
         {QStringLiteral("downloads.retryBeginning"), QStringLiteral("إعادة المحاولة من البداية")},
         {QStringLiteral("downloads.redownloadBeginning"), QStringLiteral("إعادة التنزيل من البداية")},
+        {QStringLiteral("downloads.finishRecording"), QStringLiteral("إنهاء التسجيل")},
         {QStringLiteral("downloads.noMatch"), QStringLiteral("لا توجد تنزيلات مطابقة")},
         {QStringLiteral("downloads.noDownloads"), QStringLiteral("لا توجد تنزيلات بعد")},
         {QStringLiteral("downloads.nothingView"), QStringLiteral("لا يوجد شيء في هذا العرض")},
@@ -1398,7 +1400,7 @@ const Dictionary &arabic() {
         {QStringLiteral("media.playlistItem"), QStringLiteral("عنصر قائمة تشغيل")},
         {QStringLiteral("media.daemonAnalyzing"), QStringLiteral("المحرك يحلل المصدر…")},
         {QStringLiteral("media.daemonExecution"), QStringLiteral("التحليل وتنفيذ التنزيل يبقيان داخل محرك NOVA.")},
-        {QStringLiteral("placeholder.migrating"), QStringLiteral("سيتم ترحيل مساحة العمل هذه بشكل مستقل عن الواجهة القديمة.")}
+        {QStringLiteral("placeholder.migrating"), QStringLiteral("تستخدم مساحة العمل هذه واجهة NOVA الأصلية لسطح المكتب.")}
     };
     return values;
 }
@@ -1994,6 +1996,7 @@ const Dictionary &german() {
         {QStringLiteral("downloads.showFolder"), QStringLiteral("Im Ordner anzeigen")},
         {QStringLiteral("downloads.retryBeginning"), QStringLiteral("Von vorne erneut versuchen")},
         {QStringLiteral("downloads.redownloadBeginning"), QStringLiteral("Von vorne neu herunterladen")},
+        {QStringLiteral("downloads.finishRecording"), QStringLiteral("Aufnahme beenden")},
         {QStringLiteral("downloads.noMatch"), QStringLiteral("Keine passenden Downloads")},
         {QStringLiteral("downloads.noDownloads"), QStringLiteral("Noch keine Downloads")},
         {QStringLiteral("downloads.nothingView"), QStringLiteral("Keine Einträge in dieser Ansicht")},
@@ -2070,7 +2073,7 @@ const Dictionary &german() {
         {QStringLiteral("media.playlistItem"), QStringLiteral("Playlist-Element")},
         {QStringLiteral("media.daemonAnalyzing"), QStringLiteral("Der Daemon analysiert die Quelle…")},
         {QStringLiteral("media.daemonExecution"), QStringLiteral("Analyse und Download-Ausführung bleiben in der NOVA Engine.")},
-        {QStringLiteral("placeholder.migrating"), QStringLiteral("Dieser Arbeitsbereich wird unabhängig von der alten UI migriert.")}
+        {QStringLiteral("placeholder.migrating"), QStringLiteral("Dieser Arbeitsbereich verwendet die native NOVA-Desktopoberfläche.")}
     };
     return values;
 }

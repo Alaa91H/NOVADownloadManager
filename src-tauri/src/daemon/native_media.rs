@@ -17,8 +17,9 @@ use nova_media_core::{
 };
 use nova_stream_core::{
     build_dash_live_refresh, build_dash_representation_plan, build_hls_live_refresh,
-    build_hls_media_plan, parse_dash, parse_hls, select_best_hls_variant, DashLiveCursor,
-    DashManifest, HlsLiveCursor, HlsPlaylistKind, HlsTransferUnitKind,
+    build_hls_media_plan, parse_dash, parse_hls, DashLiveCursor,
+    DashManifest, DashTrackKind, HlsLiveCursor, HlsPlaylistKind, HlsRenditionKind,
+    HlsTransferUnitKind,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -81,6 +82,7 @@ pub const NATIVE_MEDIA_OPTION_KEYS: &[&str] = &[
 ];
 
 const NATIVE_COOKIE_FILE_MAX_BYTES: u64 = 2 * 1024 * 1024;
+pub const MAX_NATIVE_MEDIA_PLAYLIST_ITEMS: usize = 1_000;
 
 impl Extractor for NativeMediaExtractor {
     fn id(&self) -> &'static str {
@@ -188,6 +190,9 @@ struct ResolvedDirectMedia {
 struct ResolvedManifestMedia {
     descriptor: MediaDescriptor,
     stream: MediaStream,
+    mode: MediaSelectionMode,
+    max_height: Option<u32>,
+    output_container: String,
     chapters: Vec<MediaChapter>,
 }
 
@@ -224,6 +229,18 @@ fn native_multitrack_enabled() -> bool {
 struct ManifestStageOutput {
     parts: Vec<(u64, PathBuf)>,
     staged_bytes: u64,
+    input_container: Option<String>,
+    kind: nova_media_core::MediaTrackKind,
+    video_codec: Option<String>,
+    audio_codec: Option<String>,
+}
+
+#[derive(Debug)]
+struct ManifestTrackStageOutput {
+    parts: Vec<(u64, PathBuf)>,
+    staged_bytes: u64,
+    container: String,
+    codec: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -237,10 +254,26 @@ struct HlsLiveTaskCheckpoint {
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
+struct HlsLivePairTaskCheckpoint {
+    video: HlsLiveTaskCheckpoint,
+    audio: HlsLiveTaskCheckpoint,
+    video_ended: bool,
+    audio_ended: bool,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
 struct DashLiveTaskCheckpoint {
     cursor: DashLiveCursor,
     next_order: u64,
     total_bytes: u64,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+struct DashLivePairTaskCheckpoint {
+    video: DashLiveTaskCheckpoint,
+    audio: DashLiveTaskCheckpoint,
 }
 
 pub async fn create_native_media_task(
@@ -248,11 +281,21 @@ pub async fn create_native_media_task(
     body: &CreateDownloadBody,
 ) -> Result<Task, NativeMediaTaskError> {
     let owned = body.clone();
-    let resolved = tokio::task::spawn_blocking(move || resolve_native_media(&owned))
+    let mut resolved = tokio::task::spawn_blocking(move || resolve_native_media(&owned))
         .await
         .map_err(|error| NativeMediaTaskError::Worker(error.to_string()))??;
 
-    let wants_subtitle_embedding = body
+    let mut task_body = body.clone();
+    if let ResolvedNativeMedia::Manifest(media) = &mut resolved {
+        media.output_container = apply_native_manifest_output_defaults(
+            &mut task_body,
+            media.mode,
+            media.stream.protocol,
+            media.stream.container.as_deref(),
+        )?;
+    }
+
+    let wants_subtitle_embedding = task_body
         .media_options
         .as_ref()
         .and_then(|options| options.embed_subtitles)
@@ -263,7 +306,7 @@ pub async fn create_native_media_task(
         ResolvedNativeMedia::SeparateTracks(media) => Some(media.output_container.as_str()),
     };
     let wants_transcoding = media_transcoding_requested(
-        body.media_options.as_ref(),
+        task_body.media_options.as_ref(),
         source_container,
     )?;
     if wants_transcoding {
@@ -291,7 +334,7 @@ pub async fn create_native_media_task(
             ),
         };
         validate_requested_native_transcode(
-            body.media_options.as_ref(),
+            task_body.media_options.as_ref(),
             kind,
             duration_millis,
             input_container,
@@ -315,7 +358,7 @@ pub async fn create_native_media_task(
         }
     }
     if wants_subtitle_embedding {
-        let mode = native_selection_preferences(body.media_options.as_ref())
+        let mode = native_selection_preferences(task_body.media_options.as_ref())
             .map_err(NativeMediaTaskError::InvalidRequest)?
             .mode;
         if mode == MediaSelectionMode::Audio {
@@ -325,12 +368,12 @@ pub async fn create_native_media_task(
         }
         let extension = match &resolved {
             ResolvedNativeMedia::Direct(media) => requested_output_extension(
-                body.media_options.as_ref(),
+                task_body.media_options.as_ref(),
                 mode,
                 media.container.as_deref(),
             ),
             ResolvedNativeMedia::Manifest(media) => requested_output_extension(
-                body.media_options.as_ref(),
+                task_body.media_options.as_ref(),
                 mode,
                 media.stream.container.as_deref(),
             ),
@@ -347,15 +390,82 @@ pub async fn create_native_media_task(
 
     match resolved {
         ResolvedNativeMedia::Direct(resolved) => {
-            create_native_direct_task(state, body, resolved).await
+            create_native_direct_task(state, &task_body, resolved).await
         }
         ResolvedNativeMedia::Manifest(resolved) => {
-            create_native_manifest_task(state, body, resolved)
+            create_native_manifest_task(state, &task_body, resolved)
         }
         ResolvedNativeMedia::SeparateTracks(resolved) => {
-            create_native_separate_track_task(state, body, resolved)
+            create_native_separate_track_task(state, &task_body, resolved)
         }
     }
+}
+
+fn apply_native_manifest_output_defaults(
+    body: &mut CreateDownloadBody,
+    mode: MediaSelectionMode,
+    protocol: MediaProtocol,
+    source_container: Option<&str>,
+) -> Result<String, NativeMediaTaskError> {
+    let source_container = source_container
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(normalize_output_extension)
+        .transpose()
+        .map_err(NativeMediaTaskError::InvalidRequest)?;
+    let default_container = source_container.unwrap_or(match (mode, protocol) {
+        (MediaSelectionMode::Audio, _) => "m4a".to_owned(),
+        (MediaSelectionMode::Video, MediaProtocol::Hls) => "ts".to_owned(),
+        (MediaSelectionMode::Video, MediaProtocol::Dash) => "mp4".to_owned(),
+        (MediaSelectionMode::Video, MediaProtocol::Http | MediaProtocol::Https) => {
+            return Err(NativeMediaTaskError::UnsupportedFeature(
+                "native manifest output defaults received a direct stream".to_owned(),
+            ));
+        }
+    });
+    let options = body.media_options.get_or_insert_with(MediaDownloadOptions::default);
+    match mode {
+        MediaSelectionMode::Audio => {
+            if options
+                .audio_format
+                .as_deref()
+                .is_none_or(|format| format.trim().is_empty())
+            {
+                options.audio_format = Some("m4a".to_owned());
+            }
+        }
+        MediaSelectionMode::Video => {
+            if options
+                .remux_format
+                .as_deref()
+                .is_none_or(|format| {
+                    format.trim().is_empty()
+                        || matches!(format.trim().to_ascii_lowercase().as_str(), "auto" | "best")
+                })
+            {
+                options.remux_format = Some(default_container.clone());
+            }
+        }
+    }
+    requested_output_extension(body.media_options.as_ref(), mode, Some(&default_container))
+        .map_err(NativeMediaTaskError::InvalidRequest)
+}
+
+pub fn resolve_native_media_playlist(
+    body: &CreateDownloadBody,
+) -> Result<nova_media_core::YouTubePlaylist, NativeMediaTaskError> {
+    let request = build_extract_request(body)?;
+    let parsed = request
+        .parsed_url()
+        .map_err(|error| NativeMediaTaskError::InvalidRequest(error.to_string()))?;
+    if nova_media_core::youtube_playlist_id(&parsed).is_none() {
+        return Err(NativeMediaTaskError::InvalidRequest(
+            "Native playlist downloads currently require a supported YouTube playlist URL"
+                .to_owned(),
+        ));
+    }
+    nova_media_core::resolve_youtube_playlist(&request)
+        .map_err(|error| NativeMediaTaskError::Resolution(error.to_string()))
 }
 
 async fn create_native_direct_task(
@@ -470,28 +580,22 @@ fn create_native_manifest_task(
         }
     };
 
-    let source_extension = resolved
-        .stream
-        .container
-        .as_deref()
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or(if protocol == "dash" { "mp4" } else { "ts" });
     let mode = native_selection_preferences(body.media_options.as_ref())
         .map_err(NativeMediaTaskError::InvalidRequest)?
         .mode;
-    let extension = requested_output_extension(
-        body.media_options.as_ref(),
-        mode,
-        Some(source_extension),
-    )
-    .map_err(NativeMediaTaskError::InvalidRequest)?;
     let mut task_body = body.clone();
+    let extension = apply_native_manifest_output_defaults(
+        &mut task_body,
+        mode,
+        resolved.stream.protocol,
+        resolved.stream.container.as_deref(),
+    )?;
     let fallback_name = task_body.name.as_deref().or_else(|| {
         let title = resolved.descriptor.metadata.title.trim();
         (!title.is_empty()).then_some(title)
     });
     let base_name = render_native_output_name(
-        body.media_options.as_ref(),
+        task_body.media_options.as_ref(),
         &resolved.descriptor.metadata.title,
         resolved.descriptor.metadata.uploader.as_deref(),
         &extension,
@@ -570,6 +674,8 @@ fn create_native_manifest_task(
         request: task_body,
         protocol: protocol.to_owned(),
         cancel_token: Arc::new(AtomicBool::new(false)),
+        finish_requested: Arc::new(AtomicBool::new(false)),
+        live_recording: false,
         run_generation: Arc::new(AtomicU64::new(0)),
         start_time: Instant::now(),
     };
@@ -753,6 +859,8 @@ fn create_native_separate_track_task(
         request: task_body,
         protocol: "separate-tracks".to_owned(),
         cancel_token: Arc::new(AtomicBool::new(false)),
+        finish_requested: Arc::new(AtomicBool::new(false)),
+        live_recording: false,
         run_generation: Arc::new(AtomicU64::new(0)),
         start_time: Instant::now(),
     };
@@ -802,9 +910,18 @@ pub fn start_native_media_process(state: &SharedState, id: &str) {
             return;
         }
         if current == Some(TaskState::Queued) {
-            if let Err(error) =
-                transition_task_state(&mut job.task, TaskState::Preparing, "starting")
+            let engine_status = if job.live_recording
+                && job.finish_requested.load(Ordering::Acquire)
             {
+                "live-recording-finishing"
+            } else {
+                "starting"
+            };
+            if let Err(error) = transition_task_state(
+                &mut job.task,
+                TaskState::Preparing,
+                engine_status,
+            ) {
                 log::error!("Native media task {id} could not start: {error}");
                 return;
             }
@@ -821,6 +938,7 @@ pub fn start_native_media_process(state: &SharedState, id: &str) {
         Some((
             generation,
             job.cancel_token.clone(),
+            job.finish_requested.clone(),
             job.run_generation.clone(),
             job.request.clone(),
             job.task.clone(),
@@ -828,7 +946,7 @@ pub fn start_native_media_process(state: &SharedState, id: &str) {
         ))
     };
 
-    let Some((generation, cancel_token, run_generation, request, task, size_bytes)) = prepared
+    let Some((generation, cancel_token, finish_requested, run_generation, request, task, size_bytes)) = prepared
     else {
         return;
     };
@@ -848,7 +966,15 @@ pub fn start_native_media_process(state: &SharedState, id: &str) {
     let state = state.clone();
     let id = id.to_owned();
     std::thread::spawn(move || {
-        run_native_media_worker(state, id, generation, cancel_token, run_generation, request);
+        run_native_media_worker(
+            state,
+            id,
+            generation,
+            cancel_token,
+            finish_requested,
+            run_generation,
+            request,
+        );
     });
 }
 
@@ -871,6 +997,7 @@ fn run_native_media_worker(
     id: String,
     generation: u64,
     cancel_token: Arc<AtomicBool>,
+    finish_requested: Arc<AtomicBool>,
     run_generation: Arc<AtomicU64>,
     request: CreateDownloadBody,
 ) {
@@ -946,12 +1073,19 @@ fn run_native_media_worker(
             let progress = |bytes: u64| {
                 update_native_progress(&progress_state, &progress_id, generation, bytes);
             };
+            let mark_live_recording = || {
+                mark_native_live_recording(&state, &id, generation);
+            };
+            let should_finish = || finish_requested.load(Ordering::Acquire);
 
             let result = stage_manifest_transfer(
                 &resolved,
+                request.media_options.as_ref(),
                 &staging_dir,
                 connections,
                 &paused_or_stale,
+                &should_finish,
+                &mark_live_recording,
                 &progress,
             );
 
@@ -1011,7 +1145,7 @@ fn run_native_media_worker(
                             let mode = native_selection_preferences(request.media_options.as_ref())
                                 .map(|preferences| preferences.mode)
                                 .unwrap_or(MediaSelectionMode::Video);
-                            let kind = resolved.stream.kind;
+                            let kind = staged.kind;
                             let mut final_bytes = match transcode_native_output(
                                 &state,
                                 request.media_options.as_ref(),
@@ -1021,9 +1155,18 @@ fn run_native_media_worker(
                                 matches!(kind, nova_media_core::MediaTrackKind::Audio | nova_media_core::MediaTrackKind::AudioVideo)
                                     || mode == MediaSelectionMode::Audio,
                                 resolved.descriptor.metadata.duration_millis,
-                                resolved.stream.container.as_deref(),
-                                resolved.stream.video_codec.as_deref(),
-                                resolved.stream.audio_codec.as_deref(),
+                                staged
+                                    .input_container
+                                    .as_deref()
+                                    .or(resolved.stream.container.as_deref()),
+                                staged
+                                    .video_codec
+                                    .as_deref()
+                                    .or(resolved.stream.video_codec.as_deref()),
+                                staged
+                                    .audio_codec
+                                    .as_deref()
+                                    .or(resolved.stream.audio_codec.as_deref()),
                                 &processing_control,
                             ) {
                                 Ok(Some(bytes)) => bytes,
@@ -1412,9 +1555,12 @@ fn verify_native_track(path: &Path, expected_bytes: u64, label: &str) -> Result<
 
 fn stage_manifest_transfer<F, P>(
     resolved: &ResolvedManifestMedia,
+    options: Option<&MediaDownloadOptions>,
     staging_dir: &Path,
     connections: u32,
     should_cancel: &F,
+    should_finish: &dyn Fn() -> bool,
+    on_live_recording: &dyn Fn(),
     on_progress: &P,
 ) -> Result<ManifestStageOutput, NativeMediaTaskError>
 where
@@ -1428,32 +1574,40 @@ where
 
     match resolved.stream.protocol {
         MediaProtocol::Hls => {
-            let (parts, staged_bytes) = stage_hls_stream(
+            stage_hls_stream(
                 &resolved.stream.url,
                 &context,
                 staging_dir,
                 connections,
+                resolved.mode,
+                resolved.max_height,
+                &resolved.output_container,
+                resolved.stream.kind,
+                resolved.stream.video_codec.clone(),
+                resolved.stream.audio_codec.clone(),
+                options,
                 should_cancel,
+                should_finish,
+                on_live_recording,
                 on_progress,
-            )?;
-            Ok(ManifestStageOutput {
-                parts,
-                staged_bytes,
-            })
+            )
         }
         MediaProtocol::Dash => {
-            let (parts, staged_bytes) = stage_dash_stream(
+            stage_dash_stream(
                 &resolved.stream.url,
                 &context,
                 staging_dir,
                 connections,
+                resolved.mode,
+                resolved.max_height,
+                &resolved.output_container,
+                resolved.stream.kind,
+                options,
                 should_cancel,
+                should_finish,
+                on_live_recording,
                 on_progress,
-            )?;
-            Ok(ManifestStageOutput {
-                parts,
-                staged_bytes,
-            })
+            )
         }
         MediaProtocol::Http | MediaProtocol::Https => {
             Err(NativeMediaTaskError::UnsupportedFeature(
@@ -1489,89 +1643,1042 @@ fn verify_staged_parts(parts: &[(u64, PathBuf)], expected_bytes: u64) -> Result<
     Ok(())
 }
 
-fn stage_hls_stream<F, P>(
-    manifest_url: &str,
+#[allow(clippy::too_many_arguments)]
+fn stage_hls_manifest_track<F, P>(
+    manifest: &nova_stream_core::HlsManifest,
+    media_url: &str,
     context: &HttpRequestContext,
     staging_dir: &Path,
     connections: u32,
+    codec: Option<String>,
     should_cancel: &F,
     on_progress: &P,
-) -> Result<(Vec<(u64, PathBuf)>, u64), NativeMediaTaskError>
+) -> Result<ManifestTrackStageOutput, NativeMediaTaskError>
 where
     F: Fn() -> bool + Sync,
     P: Fn(u64) + Sync,
 {
-    let response = fetch_http_bytes_with_context(manifest_url, context, DEFAULT_MANIFEST_MAX_BYTES)
-        .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
-    let mut media_url = response.effective_url.clone();
-    let body = String::from_utf8(response.body)
-        .map_err(|_| NativeMediaTaskError::Resolution("HLS manifest is not UTF-8".to_owned()))?;
-    let mut manifest = parse_hls(&media_url, &body)
-        .map_err(|error| NativeMediaTaskError::Resolution(error.to_string()))?;
-
-    if manifest.kind == HlsPlaylistKind::Master {
-        let variant = select_best_hls_variant(&manifest).ok_or_else(|| {
-            NativeMediaTaskError::Resolution("HLS master has no variants".to_owned())
-        })?;
-        let variant_context =
-            nova_media_core::scope_http_request_context(context, manifest_url, &variant.uri);
-        let response = fetch_http_bytes_with_context(
-            &variant.uri,
-            &variant_context,
-            DEFAULT_MANIFEST_MAX_BYTES,
-        )
-        .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
-        let body = String::from_utf8(response.body).map_err(|_| {
-            NativeMediaTaskError::Resolution("HLS media playlist is not UTF-8".to_owned())
-        })?;
-        media_url = response.effective_url.clone();
-        manifest = parse_hls(&media_url, &body)
-            .map_err(|error| NativeMediaTaskError::Resolution(error.to_string()))?;
-    }
-
-    let media_context =
-        nova_media_core::scope_http_request_context(context, manifest_url, &media_url);
-
-    if !manifest.end_list {
-        return stage_hls_live_stream(
-            &media_url,
-            manifest,
-            &media_context,
-            staging_dir,
-            connections,
-            should_cancel,
-            on_progress,
-        );
-    }
-    let plan = build_hls_media_plan(&manifest)
+    let plan = build_hls_media_plan(manifest)
         .map_err(|error| NativeMediaTaskError::Resolution(error.to_string()))?;
     let staged = stage_hls_media_plan_controlled_with_progress_scoped(
         &plan,
-        &media_context,
-        Some(&media_url),
+        context,
+        Some(media_url),
         staging_dir,
         connections,
         should_cancel,
         on_progress,
     )
     .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
-    let total_bytes = staged.total_bytes;
-    let parts = staged
-        .files
-        .into_iter()
-        .map(|file| (file.order, file.path))
-        .collect();
-    Ok((parts, total_bytes))
+    Ok(ManifestTrackStageOutput {
+        parts: staged
+            .files
+            .into_iter()
+            .map(|file| (file.order, file.path))
+            .collect(),
+        staged_bytes: staged.total_bytes,
+        container: hls_manifest_container(manifest).unwrap_or_else(|| "mpegts".to_owned()),
+        codec,
+    })
 }
 
+fn hls_manifest_container(manifest: &nova_stream_core::HlsManifest) -> Option<String> {
+    if manifest
+        .segments
+        .iter()
+        .any(|segment| segment.init_map.is_some())
+    {
+        return Some("mp4".to_owned());
+    }
+    let segment = manifest.segments.first()?;
+    let path = segment
+        .uri
+        .split(|character| character == '?' || character == '#')
+        .next()
+        .unwrap_or(&segment.uri);
+    let extension = Path::new(path)
+        .extension()
+        .and_then(|value| value.to_str())?
+        .to_ascii_lowercase();
+    Some(match extension.as_str() {
+        "m4s" | "mp4" | "m4a" => "mp4".to_owned(),
+        "ts" | "m2ts" => "mpegts".to_owned(),
+        other => other.to_owned(),
+    })
+}
+
+fn select_hls_audio_rendition<'a>(
+    manifest: &'a nova_stream_core::HlsManifest,
+    group_id: &str,
+) -> Option<&'a nova_stream_core::HlsRendition> {
+    manifest
+        .renditions
+        .iter()
+        .filter(|rendition| {
+            rendition.kind == HlsRenditionKind::Audio
+                && rendition.group_id == group_id
+                && rendition.uri.is_some()
+        })
+        .max_by_key(|rendition| (rendition.default, rendition.autoselect))
+}
+
+fn select_hls_variant(
+    manifest: &nova_stream_core::HlsManifest,
+    max_height: Option<u32>,
+) -> Option<&nova_stream_core::HlsVariant> {
+    manifest
+        .variants
+        .iter()
+        .filter(|variant| {
+            max_height.map_or(true, |limit| {
+                variant
+                    .resolution
+                    .is_some_and(|(_, height)| height <= limit)
+            })
+        })
+        .max_by_key(|variant| {
+            let (width, height) = variant.resolution.unwrap_or((0, 0));
+            (
+                u64::from(width) * u64::from(height),
+                variant.average_bandwidth.or(variant.bandwidth).unwrap_or(0),
+            )
+        })
+}
+
+fn hls_codec_for_track(
+    codecs: &[String],
+    audio: bool,
+) -> Option<String> {
+    codecs
+        .iter()
+        .flat_map(|value| value.split(','))
+        .map(str::trim)
+        .find(|codec| {
+            let codec = codec.to_ascii_lowercase();
+            if audio {
+                ["mp4a", "ac-3", "ec-3", "opus", "vorbis", "aac"]
+                    .iter()
+                    .any(|prefix| codec.starts_with(prefix))
+            } else {
+                ["avc", "hvc", "hev", "vp8", "vp9", "vp09", "av01"]
+                    .iter()
+                    .any(|prefix| codec.starts_with(prefix))
+            }
+        })
+        .map(str::to_owned)
+}
+
+fn validate_manifest_mux_pair(
+    video_container: &str,
+    video_codec: Option<&str>,
+    audio_container: &str,
+    audio_codec: Option<&str>,
+    output_container: &str,
+) -> Result<(), NativeMediaTaskError> {
+    let job = nova_media_core::processing::NativeMediaMuxJob {
+        video_source: PathBuf::from(format!("native-manifest-video.{video_container}")),
+        audio_source: PathBuf::from(format!("native-manifest-audio.{audio_container}")),
+        destination: PathBuf::from(format!("native-manifest-output.{output_container}")),
+        video_container: video_container.to_owned(),
+        audio_container: audio_container.to_owned(),
+        video_codec: video_codec.map(str::to_owned),
+        audio_codec: audio_codec.map(str::to_owned),
+    };
+    nova_media_core::processing::validate_local_media_mux_job(&job)
+        .map_err(|error| NativeMediaTaskError::UnsupportedFeature(error.to_string()))
+}
+
+fn validate_manifest_conversion_if_requested(
+    options: Option<&MediaDownloadOptions>,
+    kind: nova_media_core::MediaTrackKind,
+    input_container: &str,
+    video_codec: Option<&str>,
+    audio_codec: Option<&str>,
+) -> Result<(), NativeMediaTaskError> {
+    if !media_transcoding_requested(options, Some(input_container))? {
+        return Ok(());
+    }
+    validate_requested_native_transcode(
+        options,
+        kind,
+        None,
+        Some(input_container),
+        video_codec,
+        audio_codec,
+    )
+}
+
+fn mux_manifest_tracks<F>(
+    video: &ManifestTrackStageOutput,
+    audio: &ManifestTrackStageOutput,
+    staging_dir: &Path,
+    output_container: &str,
+    label: &str,
+    should_cancel: &F,
+) -> Result<(PathBuf, u64), NativeMediaTaskError>
+where
+    F: Fn() -> bool + Sync,
+{
+    if should_cancel() {
+        return Err(NativeMediaTaskError::Transfer(
+            "native manifest mux was cancelled".to_owned(),
+        ));
+    }
+    let video_path = staging_dir.join(format!("{label}-video-track.{}", video.container));
+    let audio_path = staging_dir.join(format!("{label}-audio-track.{}", audio.container));
+    let muxed_path = staging_dir.join(format!("{label}-muxed.{output_container}"));
+    let job = nova_media_core::processing::NativeMediaMuxJob {
+        video_source: video_path,
+        audio_source: audio_path,
+        destination: muxed_path.clone(),
+        video_container: video.container.clone(),
+        audio_container: audio.container.clone(),
+        video_codec: video.codec.clone(),
+        audio_codec: audio.codec.clone(),
+    };
+    nova_media_core::processing::validate_local_media_mux_job(&job)
+        .map_err(|error| NativeMediaTaskError::UnsupportedFeature(error.to_string()))?;
+    assemble_ordered_parts(&video.parts, &video_path)
+        .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+    assemble_ordered_parts(&audio.parts, &audio_path)
+        .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+    let control = || {
+        if should_cancel() {
+            MediaProcessingControl::Cancel
+        } else {
+            MediaProcessingControl::Continue
+        }
+    };
+    let result = nova_media_core::processing::mux_local_media_tracks(&job, &control, &|_| {})
+        .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+    Ok((muxed_path, result.output_bytes))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn stage_hls_playlist<F, P>(
+    manifest: nova_stream_core::HlsManifest,
+    media_url: &str,
+    context: &HttpRequestContext,
+    staging_dir: &Path,
+    connections: u32,
+    mode: MediaSelectionMode,
+    source_kind: nova_media_core::MediaTrackKind,
+    video_codec: Option<String>,
+    audio_codec: Option<String>,
+    options: Option<&MediaDownloadOptions>,
+    should_cancel: &F,
+    should_finish: &dyn Fn() -> bool,
+    on_live_recording: &dyn Fn(),
+    on_progress: &P,
+) -> Result<ManifestStageOutput, NativeMediaTaskError>
+where
+    F: Fn() -> bool + Sync,
+    P: Fn(u64) + Sync,
+{
+    let input_container = hls_manifest_container(&manifest).unwrap_or_else(|| "mpegts".to_owned());
+    let output_kind = if mode == MediaSelectionMode::Audio {
+        nova_media_core::MediaTrackKind::Audio
+    } else if audio_codec.is_some() || source_kind == nova_media_core::MediaTrackKind::AudioVideo {
+        nova_media_core::MediaTrackKind::AudioVideo
+    } else if video_codec.is_some() {
+        nova_media_core::MediaTrackKind::Video
+    } else {
+        source_kind
+    };
+    validate_manifest_conversion_if_requested(
+        options,
+        output_kind,
+        &input_container,
+        video_codec.as_deref(),
+        audio_codec.as_deref(),
+    )?;
+    if !manifest.end_list {
+        let (parts, staged_bytes) = stage_hls_live_stream(
+            media_url,
+            manifest,
+            context,
+            staging_dir,
+            connections,
+            should_cancel,
+            should_finish,
+            on_live_recording,
+            on_progress,
+        )?;
+        return Ok(ManifestStageOutput {
+            parts,
+            staged_bytes,
+            input_container: Some(input_container),
+            kind: output_kind,
+            video_codec,
+            audio_codec,
+        });
+    }
+
+    let track = stage_hls_manifest_track(
+        &manifest,
+        media_url,
+        context,
+        staging_dir,
+        connections,
+        if mode == MediaSelectionMode::Audio {
+            audio_codec.clone()
+        } else {
+            video_codec.clone()
+        },
+        should_cancel,
+        on_progress,
+    )?;
+    Ok(ManifestStageOutput {
+        parts: track.parts,
+        staged_bytes: track.staged_bytes,
+        input_container: Some(track.container),
+        kind: output_kind,
+        video_codec,
+        audio_codec,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn stage_hls_stream<F, P>(
+    manifest_url: &str,
+    context: &HttpRequestContext,
+    staging_dir: &Path,
+    connections: u32,
+    mode: MediaSelectionMode,
+    max_height: Option<u32>,
+    output_container: &str,
+    source_kind: nova_media_core::MediaTrackKind,
+    source_video_codec: Option<String>,
+    source_audio_codec: Option<String>,
+    options: Option<&MediaDownloadOptions>,
+    should_cancel: &F,
+    should_finish: &dyn Fn() -> bool,
+    on_live_recording: &dyn Fn(),
+    on_progress: &P,
+) -> Result<ManifestStageOutput, NativeMediaTaskError>
+where
+    F: Fn() -> bool + Sync,
+    P: Fn(u64) + Sync,
+{
+    let response = fetch_http_bytes_with_context(manifest_url, context, DEFAULT_MANIFEST_MAX_BYTES)
+        .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+    let body = String::from_utf8(response.body)
+        .map_err(|_| NativeMediaTaskError::Resolution("HLS manifest is not UTF-8".to_owned()))?;
+    let master_url = response.effective_url.clone();
+    let manifest = parse_hls(&master_url, &body)
+        .map_err(|error| NativeMediaTaskError::Resolution(error.to_string()))?;
+    if manifest.kind != HlsPlaylistKind::Master {
+        let media_context = nova_media_core::scope_http_request_context(
+            context,
+            manifest_url,
+            &master_url,
+        );
+        return stage_hls_playlist(
+            manifest,
+            &master_url,
+            &media_context,
+            staging_dir,
+            connections,
+            mode,
+            source_kind,
+            source_video_codec,
+            source_audio_codec,
+            options,
+            should_cancel,
+            should_finish,
+            on_live_recording,
+            on_progress,
+        );
+    }
+
+    let variant = select_hls_variant(&manifest, max_height)
+        .cloned()
+        .ok_or_else(|| {
+            NativeMediaTaskError::Resolution(match max_height {
+                Some(limit) => format!(
+                    "HLS master has no variant at or below the requested {limit}p quality"
+                ),
+                None => "HLS master has no variants".to_owned(),
+            })
+        })?;
+    let audio_rendition = variant
+        .audio_group
+        .as_deref()
+        .and_then(|group| select_hls_audio_rendition(&manifest, group))
+        .cloned();
+    let rendition_url = audio_rendition.as_ref().and_then(|rendition| rendition.uri.clone());
+    let video_codec = hls_codec_for_track(&variant.codecs, false);
+    let audio_codec = hls_codec_for_track(&variant.codecs, true);
+
+    if mode == MediaSelectionMode::Audio {
+        if let Some(audio_url) = rendition_url.as_deref() {
+            let audio_context =
+                nova_media_core::scope_http_request_context(context, &master_url, audio_url);
+            let response = fetch_http_bytes_with_context(
+                audio_url,
+                &audio_context,
+                DEFAULT_MANIFEST_MAX_BYTES,
+            )
+            .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+            let media_url = response.effective_url.clone();
+            let body = String::from_utf8(response.body).map_err(|_| {
+                NativeMediaTaskError::Resolution("HLS audio playlist is not UTF-8".to_owned())
+            })?;
+            let audio_manifest = parse_hls(&media_url, &body)
+                .map_err(|error| NativeMediaTaskError::Resolution(error.to_string()))?;
+            if audio_manifest.kind != HlsPlaylistKind::Media {
+                return Err(NativeMediaTaskError::Resolution(
+                    "HLS audio rendition URI did not resolve to a media playlist".to_owned(),
+                ));
+            }
+            let audio_context =
+                nova_media_core::scope_http_request_context(&audio_context, audio_url, &media_url);
+            return stage_hls_playlist(
+                audio_manifest,
+                &media_url,
+                &audio_context,
+                &staging_dir.join("hls-audio"),
+                connections,
+                mode,
+                nova_media_core::MediaTrackKind::Audio,
+                None,
+                audio_codec,
+                options,
+                should_cancel,
+                should_finish,
+                on_live_recording,
+                on_progress,
+            );
+        }
+        if audio_codec.is_none()
+            && source_kind != nova_media_core::MediaTrackKind::AudioVideo
+            && source_kind != nova_media_core::MediaTrackKind::Audio
+        {
+            return Err(NativeMediaTaskError::UnsupportedFeature(
+                "the selected HLS variant exposes no audio rendition for audio-only output"
+                    .to_owned(),
+            ));
+        }
+    }
+
+    let variant_context =
+        nova_media_core::scope_http_request_context(context, &master_url, &variant.uri);
+    let response = fetch_http_bytes_with_context(
+        &variant.uri,
+        &variant_context,
+        DEFAULT_MANIFEST_MAX_BYTES,
+    )
+    .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+    let video_url = response.effective_url.clone();
+    let body = String::from_utf8(response.body).map_err(|_| {
+        NativeMediaTaskError::Resolution("HLS media playlist is not UTF-8".to_owned())
+    })?;
+    let video_manifest = parse_hls(&video_url, &body)
+        .map_err(|error| NativeMediaTaskError::Resolution(error.to_string()))?;
+    if video_manifest.kind != HlsPlaylistKind::Media {
+        return Err(NativeMediaTaskError::Resolution(
+            "HLS variant URI did not resolve to a media playlist".to_owned(),
+        ));
+    }
+    let video_context = nova_media_core::scope_http_request_context(
+        &variant_context,
+        &variant.uri,
+        &video_url,
+    );
+
+    if mode == MediaSelectionMode::Video {
+        if let Some(audio_url) = rendition_url.as_deref() {
+            let audio_context =
+                nova_media_core::scope_http_request_context(context, &master_url, audio_url);
+            let response = fetch_http_bytes_with_context(
+                audio_url,
+                &audio_context,
+                DEFAULT_MANIFEST_MAX_BYTES,
+            )
+            .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+            let audio_media_url = response.effective_url.clone();
+            let body = String::from_utf8(response.body).map_err(|_| {
+                NativeMediaTaskError::Resolution("HLS audio playlist is not UTF-8".to_owned())
+            })?;
+            let audio_manifest = parse_hls(&audio_media_url, &body)
+                .map_err(|error| NativeMediaTaskError::Resolution(error.to_string()))?;
+            if audio_manifest.kind != HlsPlaylistKind::Media {
+                return Err(NativeMediaTaskError::Resolution(
+                    "HLS audio rendition URI did not resolve to a media playlist".to_owned(),
+                ));
+            }
+            if video_manifest.end_list && audio_manifest.end_list {
+                let audio_context = nova_media_core::scope_http_request_context(
+                    &audio_context,
+                    audio_url,
+                    &audio_media_url,
+                );
+                let video_container = hls_manifest_container(&video_manifest)
+                    .unwrap_or_else(|| "mpegts".to_owned());
+                let audio_container = hls_manifest_container(&audio_manifest)
+                    .unwrap_or_else(|| "mpegts".to_owned());
+                validate_manifest_mux_pair(
+                    &video_container,
+                    video_codec.as_deref(),
+                    &audio_container,
+                    audio_codec.as_deref(),
+                    output_container,
+                )?;
+                let video = stage_hls_manifest_track(
+                    &video_manifest,
+                    &video_url,
+                    &video_context,
+                    &staging_dir.join("hls-video"),
+                    connections,
+                    video_codec.clone(),
+                    should_cancel,
+                    on_progress,
+                )?;
+                let progress_base = video.staged_bytes;
+                let audio = stage_hls_manifest_track(
+                    &audio_manifest,
+                    &audio_media_url,
+                    &audio_context,
+                    &staging_dir.join("hls-audio"),
+                    connections,
+                    audio_codec.clone(),
+                    should_cancel,
+                    &|bytes| on_progress(progress_base.saturating_add(bytes)),
+                )?;
+                let (muxed_path, muxed_bytes) = mux_manifest_tracks(
+                    &video,
+                    &audio,
+                    staging_dir,
+                    output_container,
+                    "hls",
+                    should_cancel,
+                )?;
+                return Ok(ManifestStageOutput {
+                    parts: vec![(0, muxed_path)],
+                    staged_bytes: muxed_bytes,
+                    input_container: Some(output_container.to_owned()),
+                    kind: nova_media_core::MediaTrackKind::AudioVideo,
+                    video_codec,
+                    audio_codec: audio_codec.clone(),
+                });
+            }
+            return stage_hls_live_pair_stream(
+                &video_url,
+                video_manifest,
+                video_context,
+                video_codec,
+                audio_codec,
+                &audio_media_url,
+                audio_manifest,
+                audio_context,
+                staging_dir,
+                output_container,
+                connections,
+                should_cancel,
+                should_finish,
+                on_live_recording,
+                on_progress,
+            );
+        }
+    }
+
+    stage_hls_playlist(
+        video_manifest,
+        &video_url,
+        &video_context,
+        staging_dir,
+        connections,
+        mode,
+        source_kind,
+        video_codec,
+        audio_codec,
+        options,
+        should_cancel,
+        should_finish,
+        on_live_recording,
+        on_progress,
+    )
+}
+
+type DashRepresentationIndices = (usize, usize, usize);
+
+fn dash_representation_codec(
+    adaptation: &nova_stream_core::DashAdaptationSet,
+    representation: &nova_stream_core::DashRepresentation,
+    audio: bool,
+) -> Option<String> {
+    let codecs = representation
+        .codecs
+        .as_deref()
+        .or(adaptation.codecs.as_deref())?;
+    codecs
+        .split(',')
+        .map(str::trim)
+        .find(|codec| {
+            let codec = codec.to_ascii_lowercase();
+            if audio {
+                ["mp4a", "ac-3", "ec-3", "opus", "vorbis", "aac", "flac", "alac"]
+                    .iter()
+                    .any(|prefix| codec.starts_with(prefix))
+            } else {
+                ["avc", "hvc", "hev", "vp8", "vp9", "vp09", "av01", "theora"]
+                    .iter()
+                    .any(|prefix| codec.starts_with(prefix))
+            }
+        })
+        .map(str::to_owned)
+}
+
+fn dash_representation_kind(
+    adaptation: &nova_stream_core::DashAdaptationSet,
+    representation: &nova_stream_core::DashRepresentation,
+) -> DashTrackKind {
+    let mime_type = representation
+        .mime_type
+        .as_deref()
+        .or(adaptation.mime_type.as_deref())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let content_type = adaptation
+        .content_type
+        .as_deref()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if mime_type.starts_with("audio/") || content_type == "audio" {
+        DashTrackKind::Audio
+    } else if mime_type.starts_with("video/") || content_type == "video" {
+        DashTrackKind::Video
+    } else if dash_representation_codec(adaptation, representation, false).is_some()
+        || representation.width.is_some()
+        || representation.height.is_some()
+    {
+        DashTrackKind::Video
+    } else if dash_representation_codec(adaptation, representation, true).is_some() {
+        DashTrackKind::Audio
+    } else {
+        DashTrackKind::Other
+    }
+}
+
+fn best_dash_track_indices(
+    manifest: &DashManifest,
+    kind: DashTrackKind,
+    period_filter: Option<usize>,
+    max_height: Option<u32>,
+) -> Option<DashRepresentationIndices> {
+    let mut best: Option<((u64, u64), DashRepresentationIndices)> = None;
+    for (period_index, period) in manifest.periods.iter().enumerate() {
+        if period_filter.is_some_and(|selected| selected != period_index) {
+            continue;
+        }
+        for (adaptation_index, adaptation) in period.adaptations.iter().enumerate() {
+            for (representation_index, representation) in
+                adaptation.representations.iter().enumerate()
+            {
+                if dash_representation_kind(adaptation, representation) != kind {
+                    continue;
+                }
+                if kind == DashTrackKind::Video
+                    && max_height.is_some_and(|limit| {
+                        representation.height.map_or(true, |height| height > limit)
+                    })
+                {
+                    continue;
+                }
+                let resolution = u64::from(representation.width.unwrap_or(0))
+                    .saturating_mul(u64::from(representation.height.unwrap_or(0)));
+                let bandwidth = representation.bandwidth.unwrap_or(0);
+                let score = match kind {
+                    DashTrackKind::Video => (resolution, bandwidth),
+                    DashTrackKind::Audio | DashTrackKind::Other => (bandwidth, resolution),
+                };
+                if best.as_ref().map_or(true, |(current, _)| score > *current) {
+                    best = Some((
+                        score,
+                        (period_index, adaptation_index, representation_index),
+                    ));
+                }
+            }
+        }
+    }
+    best.map(|(_, indices)| indices)
+}
+
+fn dash_track_container(
+    adaptation: &nova_stream_core::DashAdaptationSet,
+    representation: &nova_stream_core::DashRepresentation,
+    plan: &nova_stream_core::DashRepresentationPlan,
+) -> String {
+    let mime_type = representation
+        .mime_type
+        .as_deref()
+        .or(adaptation.mime_type.as_deref())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if mime_type.contains("webm") {
+        return "webm".to_owned();
+    }
+    if mime_type.contains("mp4") {
+        return "mp4".to_owned();
+    }
+    if mime_type.contains("mp2t") {
+        return "mpegts".to_owned();
+    }
+    for value in representation
+        .base_url
+        .iter()
+        .chain(adaptation.base_url.iter())
+        .chain(plan.units.iter().map(|unit| &unit.url))
+    {
+        let path = value
+            .split(|character| character == '?' || character == '#')
+            .next()
+            .unwrap_or(value);
+        let Some(extension) = Path::new(path)
+            .extension()
+            .and_then(|value| value.to_str())
+            .map(str::to_ascii_lowercase)
+        else {
+            continue;
+        };
+        match extension.as_str() {
+            "webm" => return "webm".to_owned(),
+            "m4s" | "mp4" | "m4a" | "m4v" => return "mp4".to_owned(),
+            "ts" | "m2ts" => return "mpegts".to_owned(),
+            _ => {}
+        }
+    }
+    "mp4".to_owned()
+}
+
+fn dash_manifest_track_container(
+    manifest: &DashManifest,
+    indices: DashRepresentationIndices,
+) -> Result<String, NativeMediaTaskError> {
+    let adaptation = manifest
+        .periods
+        .get(indices.0)
+        .and_then(|period| period.adaptations.get(indices.1))
+        .ok_or_else(|| NativeMediaTaskError::Resolution("DASH adaptation disappeared".to_owned()))?;
+    let representation = adaptation
+        .representations
+        .get(indices.2)
+        .ok_or_else(|| {
+            NativeMediaTaskError::Resolution("DASH representation disappeared".to_owned())
+        })?;
+    let plan = nova_stream_core::DashRepresentationPlan {
+        representation_id: representation.id.clone(),
+        track_kind: dash_representation_kind(adaptation, representation),
+        bandwidth: representation.bandwidth,
+        units: Vec::new(),
+    };
+    Ok(dash_track_container(adaptation, representation, &plan))
+}
+
+fn stage_dash_manifest_track<F, P>(
+    manifest: &DashManifest,
+    manifest_url: &str,
+    context: &HttpRequestContext,
+    indices: DashRepresentationIndices,
+    staging_dir: &Path,
+    connections: u32,
+    codec: Option<String>,
+    should_cancel: &F,
+    on_progress: &P,
+) -> Result<ManifestTrackStageOutput, NativeMediaTaskError>
+where
+    F: Fn() -> bool + Sync,
+    P: Fn(u64) + Sync,
+{
+    let plan = build_dash_representation_plan(
+        manifest,
+        manifest_url,
+        indices.0,
+        indices.1,
+        indices.2,
+    )
+    .map_err(|error| NativeMediaTaskError::Resolution(error.to_string()))?;
+    let adaptation = manifest
+        .periods
+        .get(indices.0)
+        .and_then(|period| period.adaptations.get(indices.1))
+        .ok_or_else(|| NativeMediaTaskError::Resolution("DASH adaptation disappeared".to_owned()))?;
+    let representation = adaptation
+        .representations
+        .get(indices.2)
+        .ok_or_else(|| NativeMediaTaskError::Resolution("DASH representation disappeared".to_owned()))?;
+    let staged = stage_dash_representation_plan_controlled_with_progress_scoped(
+        &plan,
+        context,
+        Some(manifest_url),
+        staging_dir,
+        connections,
+        should_cancel,
+        on_progress,
+    )
+    .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+    Ok(ManifestTrackStageOutput {
+        parts: staged
+            .files
+            .into_iter()
+            .map(|file| (file.order, file.path))
+            .collect(),
+        staged_bytes: staged.total_bytes,
+        container: dash_track_container(adaptation, representation, &plan),
+        codec,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn stage_dash_live_pair_stream<F, P>(
+    manifest_url: &str,
+    initial_manifest: DashManifest,
+    video_indices: DashRepresentationIndices,
+    video_codec: Option<String>,
+    audio_indices: DashRepresentationIndices,
+    audio_codec: Option<String>,
+    context: &HttpRequestContext,
+    staging_dir: &Path,
+    output_container: &str,
+    connections: u32,
+    should_cancel: &F,
+    should_finish: &dyn Fn() -> bool,
+    on_live_recording: &dyn Fn(),
+    on_progress: &P,
+) -> Result<ManifestStageOutput, NativeMediaTaskError>
+where
+    F: Fn() -> bool + Sync,
+    P: Fn(u64) + Sync,
+{
+    let video_container = dash_manifest_track_container(&initial_manifest, video_indices)?;
+    let audio_container = dash_manifest_track_container(&initial_manifest, audio_indices)?;
+    validate_manifest_mux_pair(
+        &video_container,
+        video_codec.as_deref(),
+        &audio_container,
+        audio_codec.as_deref(),
+        output_container,
+    )?;
+    on_live_recording();
+    let checkpoint_path = staging_dir.join("dash-live-pair-checkpoint.json");
+    let mut checkpoint: DashLivePairTaskCheckpoint =
+        read_live_checkpoint(&checkpoint_path).unwrap_or_default();
+    let video_parts_dir = staging_dir.join("video-track");
+    let audio_parts_dir = staging_dir.join("audio-track");
+    let mut next_manifest = Some(initial_manifest);
+    let mut tick = 0_u64;
+
+    loop {
+        if should_cancel() {
+            return Err(NativeMediaTaskError::Transfer(
+                "native DASH multi-track live staging was cancelled".to_owned(),
+            ));
+        }
+
+        let (manifest, effective_url) = if let Some(manifest) = next_manifest.take() {
+            (manifest, manifest_url.to_owned())
+        } else {
+            let response =
+                fetch_http_bytes_with_context(manifest_url, context, DEFAULT_MANIFEST_MAX_BYTES)
+                    .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+            let body = String::from_utf8(response.body).map_err(|_| {
+                NativeMediaTaskError::Resolution("DASH live manifest is not UTF-8".to_owned())
+            })?;
+            let manifest = parse_dash(&body)
+                .map_err(|error| NativeMediaTaskError::Resolution(error.to_string()))?;
+            (manifest, response.effective_url)
+        };
+        if !manifest.is_dynamic {
+            let video_parts = committed_live_parts(&video_parts_dir)?;
+            let audio_parts = committed_live_parts(&audio_parts_dir)?;
+            if video_parts.is_empty() || audio_parts.is_empty() {
+                return Err(NativeMediaTaskError::Resolution(
+                    "DASH live source ended before both tracks contained media".to_owned(),
+                ));
+            }
+            let video = ManifestTrackStageOutput {
+                parts: video_parts,
+                staged_bytes: checkpoint.video.total_bytes,
+                container: video_container,
+                codec: video_codec.clone(),
+            };
+            let audio = ManifestTrackStageOutput {
+                parts: audio_parts,
+                staged_bytes: checkpoint.audio.total_bytes,
+                container: audio_container,
+                codec: audio_codec.clone(),
+            };
+            let (muxed_path, muxed_bytes) = mux_manifest_tracks(
+                &video,
+                &audio,
+                staging_dir,
+                output_container,
+                "dash-live",
+                should_cancel,
+            )?;
+            return Ok(ManifestStageOutput {
+                parts: vec![(0, muxed_path)],
+                staged_bytes: muxed_bytes,
+                input_container: Some(output_container.to_owned()),
+                kind: nova_media_core::MediaTrackKind::AudioVideo,
+                video_codec,
+                audio_codec,
+            });
+        }
+
+        let refresh_context =
+            nova_media_core::scope_http_request_context(context, manifest_url, &effective_url);
+        let video_refresh = build_dash_live_refresh(
+            &manifest,
+            &effective_url,
+            video_indices.0,
+            video_indices.1,
+            video_indices.2,
+            checkpoint.video.cursor,
+        )
+        .map_err(|error| NativeMediaTaskError::Resolution(error.to_string()))?;
+        let audio_refresh = build_dash_live_refresh(
+            &manifest,
+            &effective_url,
+            audio_indices.0,
+            audio_indices.1,
+            audio_indices.2,
+            checkpoint.audio.cursor,
+        )
+        .map_err(|error| NativeMediaTaskError::Resolution(error.to_string()))?;
+
+        if let Some(plan) = video_refresh.plan {
+            let tick_dir = staging_dir.join(format!("video-tick-{tick:08}"));
+            let base = checkpoint.video.total_bytes;
+            let staged = stage_dash_representation_plan_controlled_with_progress_scoped(
+                &plan,
+                &refresh_context,
+                Some(&effective_url),
+                &tick_dir,
+                connections,
+                should_cancel,
+                |bytes| {
+                    on_progress(
+                        base.saturating_add(checkpoint.audio.total_bytes)
+                            .saturating_add(bytes),
+                    )
+                },
+            )
+            .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+            let files = staged
+                .files
+                .into_iter()
+                .map(|file| (file.order, file.path))
+                .collect::<Vec<_>>();
+            commit_live_parts(&video_parts_dir, &files, &mut checkpoint.video.next_order)?;
+            checkpoint.video.total_bytes = checkpoint
+                .video
+                .total_bytes
+                .saturating_add(staged.total_bytes);
+            let _ = std::fs::remove_dir_all(tick_dir);
+        }
+
+        if let Some(plan) = audio_refresh.plan {
+            let tick_dir = staging_dir.join(format!("audio-tick-{tick:08}"));
+            let base = checkpoint.video.total_bytes.saturating_add(
+                checkpoint.audio.total_bytes,
+            );
+            let staged = stage_dash_representation_plan_controlled_with_progress_scoped(
+                &plan,
+                &refresh_context,
+                Some(&effective_url),
+                &tick_dir,
+                connections,
+                should_cancel,
+                |bytes| on_progress(base.saturating_add(bytes)),
+            )
+            .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+            let files = staged
+                .files
+                .into_iter()
+                .map(|file| (file.order, file.path))
+                .collect::<Vec<_>>();
+            commit_live_parts(&audio_parts_dir, &files, &mut checkpoint.audio.next_order)?;
+            checkpoint.audio.total_bytes = checkpoint
+                .audio
+                .total_bytes
+                .saturating_add(staged.total_bytes);
+            let _ = std::fs::remove_dir_all(tick_dir);
+        }
+
+        checkpoint.video.cursor = video_refresh.next_cursor;
+        checkpoint.audio.cursor = audio_refresh.next_cursor;
+        write_live_checkpoint(&checkpoint_path, &checkpoint)?;
+        on_progress(
+            checkpoint
+                .video
+                .total_bytes
+                .saturating_add(checkpoint.audio.total_bytes),
+        );
+        if should_finish() {
+            let video_parts = committed_live_parts(&video_parts_dir)?;
+            let audio_parts = committed_live_parts(&audio_parts_dir)?;
+            if video_parts.is_empty() || audio_parts.is_empty() {
+                return Err(NativeMediaTaskError::Resolution(
+                    "DASH live recording finished before both tracks contained media".to_owned(),
+                ));
+            }
+            let video = ManifestTrackStageOutput {
+                parts: video_parts,
+                staged_bytes: checkpoint.video.total_bytes,
+                container: video_container.clone(),
+                codec: video_codec.clone(),
+            };
+            let audio = ManifestTrackStageOutput {
+                parts: audio_parts,
+                staged_bytes: checkpoint.audio.total_bytes,
+                container: audio_container.clone(),
+                codec: audio_codec.clone(),
+            };
+            let (muxed_path, muxed_bytes) = mux_manifest_tracks(
+                &video,
+                &audio,
+                staging_dir,
+                output_container,
+                "dash-live",
+                should_cancel,
+            )?;
+            return Ok(ManifestStageOutput {
+                parts: vec![(0, muxed_path)],
+                staged_bytes: muxed_bytes,
+                input_container: Some(output_container.to_owned()),
+                kind: nova_media_core::MediaTrackKind::AudioVideo,
+                video_codec,
+                audio_codec,
+            });
+        }
+        tick = tick.saturating_add(1);
+        sleep_live_refresh(
+            video_refresh
+                .reload_after_millis
+                .max(audio_refresh.reload_after_millis),
+            should_cancel,
+            should_finish,
+        )?;
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 fn stage_dash_stream<F, P>(
     manifest_url: &str,
     context: &HttpRequestContext,
     staging_dir: &Path,
     connections: u32,
+    mode: MediaSelectionMode,
+    max_height: Option<u32>,
+    output_container: &str,
+    source_kind: nova_media_core::MediaTrackKind,
+    options: Option<&MediaDownloadOptions>,
     should_cancel: &F,
+    should_finish: &dyn Fn() -> bool,
+    on_live_recording: &dyn Fn(),
     on_progress: &P,
-) -> Result<(Vec<(u64, PathBuf)>, u64), NativeMediaTaskError>
+) -> Result<ManifestStageOutput, NativeMediaTaskError>
 where
     F: Fn() -> bool + Sync,
     P: Fn(u64) + Sync,
@@ -1582,51 +2689,464 @@ where
         .map_err(|_| NativeMediaTaskError::Resolution("DASH manifest is not UTF-8".to_owned()))?;
     let manifest =
         parse_dash(&body).map_err(|error| NativeMediaTaskError::Resolution(error.to_string()))?;
-    let (period, adaptation, representation) = best_dash_representation_indices(&manifest)
-        .ok_or_else(|| {
-            NativeMediaTaskError::Resolution("DASH manifest has no representations".to_owned())
-        })?;
     let manifest_context =
         nova_media_core::scope_http_request_context(context, manifest_url, &response.effective_url);
+    if manifest.periods.len() > 1 {
+        return Err(NativeMediaTaskError::UnsupportedFeature(
+            "DASH presentations with multiple periods require period-aware timeline assembly"
+                .to_owned(),
+        ));
+    }
+    let video_indices =
+        best_dash_track_indices(&manifest, DashTrackKind::Video, None, max_height);
+    let audio_period = video_indices.map(|indices| indices.0);
+    let audio_indices =
+        best_dash_track_indices(&manifest, DashTrackKind::Audio, audio_period, None);
+    let selected_indices = if mode == MediaSelectionMode::Audio {
+        audio_indices.ok_or_else(|| {
+            NativeMediaTaskError::UnsupportedFeature(
+                "DASH manifest has no native audio representation".to_owned(),
+            )
+        })?
+    } else {
+        video_indices.ok_or_else(|| {
+            NativeMediaTaskError::UnsupportedFeature(
+                "DASH manifest has no native video representation".to_owned(),
+            )
+        })?
+    };
+    let (selected_kind, video_codec, audio_codec, input_container) = {
+        let adaptation =
+            &manifest.periods[selected_indices.0].adaptations[selected_indices.1];
+        let representation = &adaptation.representations[selected_indices.2];
+        let kind = dash_representation_kind(adaptation, representation);
+        let video_codec = dash_representation_codec(adaptation, representation, false);
+        let audio_codec = dash_representation_codec(adaptation, representation, true);
+        let plan = nova_stream_core::DashRepresentationPlan {
+            representation_id: representation.id.clone(),
+            track_kind: kind,
+            bandwidth: representation.bandwidth,
+            units: Vec::new(),
+        };
+        (
+            kind,
+            video_codec,
+            audio_codec,
+            dash_track_container(adaptation, representation, &plan),
+        )
+    };
+    let output_kind = if mode == MediaSelectionMode::Audio || selected_kind == DashTrackKind::Audio {
+        nova_media_core::MediaTrackKind::Audio
+    } else if video_codec.is_some() && audio_codec.is_some() {
+        nova_media_core::MediaTrackKind::AudioVideo
+    } else if selected_kind == DashTrackKind::Video {
+        nova_media_core::MediaTrackKind::Video
+    } else {
+        source_kind
+    };
     if manifest.is_dynamic {
+        if mode == MediaSelectionMode::Video {
+            if let (Some(video), Some(audio)) = (video_indices, audio_indices) {
+                if video != audio {
+                    let (video_codec, audio_codec) = {
+                        let video_adaptation =
+                            &manifest.periods[video.0].adaptations[video.1];
+                        let video_representation =
+                            &video_adaptation.representations[video.2];
+                        let audio_adaptation =
+                            &manifest.periods[audio.0].adaptations[audio.1];
+                        let audio_representation =
+                            &audio_adaptation.representations[audio.2];
+                        (
+                            dash_representation_codec(
+                                video_adaptation,
+                                video_representation,
+                                false,
+                            ),
+                            dash_representation_codec(
+                                audio_adaptation,
+                                audio_representation,
+                                true,
+                            ),
+                        )
+                    };
+                    return stage_dash_live_pair_stream(
+                        &response.effective_url,
+                        manifest,
+                        video,
+                        video_codec,
+                        audio,
+                        audio_codec,
+                        &manifest_context,
+                        staging_dir,
+                        output_container,
+                        connections,
+                        should_cancel,
+                        should_finish,
+                        on_live_recording,
+                        on_progress,
+                    );
+                }
+            }
+        }
+        validate_manifest_conversion_if_requested(
+            options,
+            output_kind,
+            &input_container,
+            video_codec.as_deref(),
+            audio_codec.as_deref(),
+        )?;
         return stage_dash_live_stream(
             &response.effective_url,
             manifest,
-            period,
-            adaptation,
-            representation,
+            selected_indices.0,
+            selected_indices.1,
+            selected_indices.2,
             &manifest_context,
             staging_dir,
             connections,
             should_cancel,
+            should_finish,
+            on_live_recording,
             on_progress,
-        );
+        )
+        .map(|(parts, staged_bytes)| ManifestStageOutput {
+            parts,
+            staged_bytes,
+            input_container: Some(input_container),
+            kind: output_kind,
+            video_codec,
+            audio_codec,
+        });
     }
-    let plan = build_dash_representation_plan(
+
+    if mode == MediaSelectionMode::Video {
+        if let (Some(video), Some(audio)) = (video_indices, audio_indices) {
+            if video != audio {
+                let video_adaptation = &manifest.periods[video.0].adaptations[video.1];
+                let video_representation = &video_adaptation.representations[video.2];
+                let audio_adaptation = &manifest.periods[audio.0].adaptations[audio.1];
+                let audio_representation = &audio_adaptation.representations[audio.2];
+                let video_codec =
+                    dash_representation_codec(video_adaptation, video_representation, false);
+                let audio_codec =
+                    dash_representation_codec(audio_adaptation, audio_representation, true);
+                let video_container = dash_manifest_track_container(&manifest, video)?;
+                let audio_container = dash_manifest_track_container(&manifest, audio)?;
+                validate_manifest_mux_pair(
+                    &video_container,
+                    video_codec.as_deref(),
+                    &audio_container,
+                    audio_codec.as_deref(),
+                    output_container,
+                )?;
+                let video_stage = stage_dash_manifest_track(
+                    &manifest,
+                    &response.effective_url,
+                    &manifest_context,
+                    video,
+                    &staging_dir.join("dash-video"),
+                    connections,
+                    video_codec.clone(),
+                    should_cancel,
+                    on_progress,
+                )?;
+                let progress_base = video_stage.staged_bytes;
+                let audio_stage = stage_dash_manifest_track(
+                    &manifest,
+                    &response.effective_url,
+                    &manifest_context,
+                    audio,
+                    &staging_dir.join("dash-audio"),
+                    connections,
+                    audio_codec.clone(),
+                    should_cancel,
+                    &|bytes| on_progress(progress_base.saturating_add(bytes)),
+                )?;
+                let (muxed_path, muxed_bytes) = mux_manifest_tracks(
+                    &video_stage,
+                    &audio_stage,
+                    staging_dir,
+                    output_container,
+                    "dash",
+                    should_cancel,
+                )?;
+                return Ok(ManifestStageOutput {
+                    parts: vec![(0, muxed_path)],
+                    staged_bytes: muxed_bytes,
+                    input_container: Some(output_container.to_owned()),
+                    kind: nova_media_core::MediaTrackKind::AudioVideo,
+                    video_codec,
+                    audio_codec,
+                });
+            }
+        }
+    }
+
+    validate_manifest_conversion_if_requested(
+        options,
+        output_kind,
+        &input_container,
+        video_codec.as_deref(),
+        audio_codec.as_deref(),
+    )?;
+    let selected_codec = if mode == MediaSelectionMode::Audio {
+        audio_codec.clone()
+    } else {
+        video_codec.clone()
+    };
+    let staged = stage_dash_manifest_track(
         &manifest,
         &response.effective_url,
-        period,
-        adaptation,
-        representation,
-    )
-    .map_err(|error| NativeMediaTaskError::Resolution(error.to_string()))?;
-    let staged = stage_dash_representation_plan_controlled_with_progress_scoped(
-        &plan,
         &manifest_context,
-        Some(&response.effective_url),
+        selected_indices,
         staging_dir,
         connections,
+        selected_codec,
         should_cancel,
         on_progress,
-    )
-    .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
-    let total_bytes = staged.total_bytes;
-    let parts = staged
-        .files
-        .into_iter()
-        .map(|file| (file.order, file.path))
-        .collect();
-    Ok((parts, total_bytes))
+    )?;
+    Ok(ManifestStageOutput {
+        parts: staged.parts,
+        staged_bytes: staged.staged_bytes,
+        input_container: Some(staged.container),
+        kind: output_kind,
+        video_codec,
+        audio_codec,
+    })
+}
+
+fn fetch_hls_media_playlist(
+    playlist_url: &str,
+    context: &HttpRequestContext,
+) -> Result<
+    (
+        nova_stream_core::HlsManifest,
+        String,
+        HttpRequestContext,
+    ),
+    NativeMediaTaskError,
+> {
+    let response =
+        fetch_http_bytes_with_context(playlist_url, context, DEFAULT_MANIFEST_MAX_BYTES)
+            .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+    let effective_url = response.effective_url;
+    let body = String::from_utf8(response.body)
+        .map_err(|_| NativeMediaTaskError::Resolution("HLS live manifest is not UTF-8".to_owned()))?;
+    let manifest = parse_hls(&effective_url, &body)
+        .map_err(|error| NativeMediaTaskError::Resolution(error.to_string()))?;
+    if manifest.kind != HlsPlaylistKind::Media {
+        return Err(NativeMediaTaskError::Resolution(
+            "HLS live rendition did not resolve to a media playlist".to_owned(),
+        ));
+    }
+    let scoped_context =
+        nova_media_core::scope_http_request_context(context, playlist_url, &effective_url);
+    Ok((manifest, effective_url, scoped_context))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn stage_hls_live_pair_stream<F, P>(
+    video_url: &str,
+    initial_video_manifest: nova_stream_core::HlsManifest,
+    video_context: HttpRequestContext,
+    video_codec: Option<String>,
+    audio_codec: Option<String>,
+    audio_url: &str,
+    initial_audio_manifest: nova_stream_core::HlsManifest,
+    audio_context: HttpRequestContext,
+    staging_dir: &Path,
+    output_container: &str,
+    connections: u32,
+    should_cancel: &F,
+    should_finish: &dyn Fn() -> bool,
+    on_live_recording: &dyn Fn(),
+    on_progress: &P,
+) -> Result<ManifestStageOutput, NativeMediaTaskError>
+where
+    F: Fn() -> bool + Sync,
+    P: Fn(u64) + Sync,
+{
+    on_live_recording();
+    let checkpoint_path = staging_dir.join("hls-live-pair-checkpoint.json");
+    let mut checkpoint: HlsLivePairTaskCheckpoint =
+        read_live_checkpoint(&checkpoint_path).unwrap_or_default();
+    let video_parts_dir = staging_dir.join("video-track");
+    let audio_parts_dir = staging_dir.join("audio-track");
+    let video_container =
+        hls_manifest_container(&initial_video_manifest).unwrap_or_else(|| "mpegts".to_owned());
+    let audio_container =
+        hls_manifest_container(&initial_audio_manifest).unwrap_or_else(|| "mpegts".to_owned());
+    validate_manifest_mux_pair(
+        &video_container,
+        video_codec.as_deref(),
+        &audio_container,
+        audio_codec.as_deref(),
+        output_container,
+    )?;
+    let mut next_video = Some(initial_video_manifest);
+    let mut next_audio = Some(initial_audio_manifest);
+    let mut tick = 0_u64;
+
+    loop {
+        if should_cancel() {
+            return Err(NativeMediaTaskError::Transfer(
+                "native HLS multi-track live staging was cancelled".to_owned(),
+            ));
+        }
+
+        let (video_manifest, video_effective_url, scoped_video_context) =
+            if let Some(manifest) = next_video.take() {
+                (manifest, video_url.to_owned(), video_context.clone())
+            } else {
+                fetch_hls_media_playlist(video_url, &video_context)?
+            };
+        let (audio_manifest, audio_effective_url, scoped_audio_context) =
+            if let Some(manifest) = next_audio.take() {
+                (manifest, audio_url.to_owned(), audio_context.clone())
+            } else {
+                fetch_hls_media_playlist(audio_url, &audio_context)?
+            };
+
+        let video_refresh = build_hls_live_refresh(&video_manifest, checkpoint.video.cursor)
+            .map_err(|error| NativeMediaTaskError::Resolution(error.to_string()))?;
+        let audio_refresh = build_hls_live_refresh(&audio_manifest, checkpoint.audio.cursor)
+            .map_err(|error| NativeMediaTaskError::Resolution(error.to_string()))?;
+
+        if let Some(mut plan) = video_refresh.plan {
+            let mut last_init = checkpoint.video.last_init_identity.clone();
+            plan.units.retain(|unit| {
+                if unit.kind != HlsTransferUnitKind::Initialization {
+                    return true;
+                }
+                let identity = format!("{}|{:?}", unit.uri, unit.byte_range);
+                if last_init.as_deref() == Some(identity.as_str()) {
+                    return false;
+                }
+                last_init = Some(identity);
+                true
+            });
+            if !plan.units.is_empty() {
+                let tick_dir = staging_dir.join(format!("video-tick-{tick:08}"));
+                let base = checkpoint.video.total_bytes;
+                let staged = stage_hls_media_plan_controlled_with_progress_scoped(
+                    &plan,
+                    &scoped_video_context,
+                    Some(&video_effective_url),
+                    &tick_dir,
+                    connections,
+                    should_cancel,
+                    |bytes| {
+                        on_progress(
+                            base.saturating_add(checkpoint.audio.total_bytes)
+                                .saturating_add(bytes),
+                        )
+                    },
+                )
+                .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+                let files = staged
+                    .files
+                    .into_iter()
+                    .map(|file| (file.order, file.path))
+                    .collect::<Vec<_>>();
+                commit_live_parts(&video_parts_dir, &files, &mut checkpoint.video.next_order)?;
+                checkpoint.video.total_bytes = checkpoint
+                    .video
+                    .total_bytes
+                    .saturating_add(staged.total_bytes);
+                checkpoint.video.last_init_identity = last_init;
+                let _ = std::fs::remove_dir_all(tick_dir);
+            }
+        }
+
+        if let Some(plan) = audio_refresh.plan {
+            if !plan.units.is_empty() {
+                let tick_dir = staging_dir.join(format!("audio-tick-{tick:08}"));
+                let base = checkpoint.video.total_bytes.saturating_add(
+                    checkpoint.audio.total_bytes,
+                );
+                let staged = stage_hls_media_plan_controlled_with_progress_scoped(
+                    &plan,
+                    &scoped_audio_context,
+                    Some(&audio_effective_url),
+                    &tick_dir,
+                    connections,
+                    should_cancel,
+                    |bytes| on_progress(base.saturating_add(bytes)),
+                )
+                .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+                let files = staged
+                    .files
+                    .into_iter()
+                    .map(|file| (file.order, file.path))
+                    .collect::<Vec<_>>();
+                commit_live_parts(&audio_parts_dir, &files, &mut checkpoint.audio.next_order)?;
+                checkpoint.audio.total_bytes = checkpoint
+                    .audio
+                    .total_bytes
+                    .saturating_add(staged.total_bytes);
+                let _ = std::fs::remove_dir_all(tick_dir);
+            }
+        }
+
+        checkpoint.video.cursor = video_refresh.next_cursor;
+        checkpoint.audio.cursor = audio_refresh.next_cursor;
+        checkpoint.video_ended |= video_refresh.ended;
+        checkpoint.audio_ended |= audio_refresh.ended;
+        write_live_checkpoint(&checkpoint_path, &checkpoint)?;
+        let staged_total = checkpoint
+            .video
+            .total_bytes
+            .saturating_add(checkpoint.audio.total_bytes);
+        on_progress(staged_total);
+
+        if (checkpoint.video_ended && checkpoint.audio_ended) || should_finish() {
+            let video_parts = committed_live_parts(&video_parts_dir)?;
+            let audio_parts = committed_live_parts(&audio_parts_dir)?;
+            if video_parts.is_empty() || audio_parts.is_empty() {
+                return Err(NativeMediaTaskError::Resolution(
+                    "HLS live recording finished before both tracks contained media".to_owned(),
+                ));
+            }
+            let video = ManifestTrackStageOutput {
+                parts: video_parts,
+                staged_bytes: checkpoint.video.total_bytes,
+                container: video_container,
+                codec: video_codec.clone(),
+            };
+            let audio = ManifestTrackStageOutput {
+                parts: audio_parts,
+                staged_bytes: checkpoint.audio.total_bytes,
+                container: audio_container,
+                codec: audio_codec.clone(),
+            };
+            let (muxed_path, muxed_bytes) = mux_manifest_tracks(
+                &video,
+                &audio,
+                staging_dir,
+                output_container,
+                "hls-live",
+                should_cancel,
+            )?;
+            return Ok(ManifestStageOutput {
+                parts: vec![(0, muxed_path)],
+                staged_bytes: muxed_bytes,
+                input_container: Some(output_container.to_owned()),
+                kind: nova_media_core::MediaTrackKind::AudioVideo,
+                video_codec,
+                audio_codec,
+            });
+        }
+
+        tick = tick.saturating_add(1);
+        sleep_live_refresh(
+            video_refresh
+                .reload_after_millis
+                .max(audio_refresh.reload_after_millis),
+            should_cancel,
+            should_finish,
+        )?;
+    }
 }
 
 fn stage_hls_live_stream<F, P>(
@@ -1636,12 +3156,15 @@ fn stage_hls_live_stream<F, P>(
     staging_dir: &Path,
     connections: u32,
     should_cancel: &F,
+    should_finish: &dyn Fn() -> bool,
+    on_live_recording: &dyn Fn(),
     on_progress: &P,
 ) -> Result<(Vec<(u64, PathBuf)>, u64), NativeMediaTaskError>
 where
     F: Fn() -> bool + Sync,
     P: Fn(u64) + Sync,
 {
+    on_live_recording();
     let checkpoint_path = staging_dir.join("hls-live-checkpoint.json");
     let mut checkpoint: HlsLiveTaskCheckpoint =
         read_live_checkpoint(&checkpoint_path).unwrap_or_default();
@@ -1715,12 +3238,22 @@ where
         write_live_checkpoint(&checkpoint_path, &checkpoint)?;
         on_progress(checkpoint.total_bytes);
 
-        if refresh.ended {
-            return Ok((committed_live_parts(staging_dir)?, checkpoint.total_bytes));
+        if refresh.ended || should_finish() {
+            let parts = committed_live_parts(staging_dir)?;
+            if parts.is_empty() {
+                return Err(NativeMediaTaskError::Resolution(
+                    "HLS live source ended before any media was committed".to_owned(),
+                ));
+            }
+            return Ok((parts, checkpoint.total_bytes));
         }
 
         tick = tick.saturating_add(1);
-        sleep_live_refresh(refresh.reload_after_millis, should_cancel)?;
+        sleep_live_refresh(
+            refresh.reload_after_millis,
+            should_cancel,
+            should_finish,
+        )?;
     }
 }
 
@@ -1735,12 +3268,15 @@ fn stage_dash_live_stream<F, P>(
     staging_dir: &Path,
     connections: u32,
     should_cancel: &F,
+    should_finish: &dyn Fn() -> bool,
+    on_live_recording: &dyn Fn(),
     on_progress: &P,
 ) -> Result<(Vec<(u64, PathBuf)>, u64), NativeMediaTaskError>
 where
     F: Fn() -> bool + Sync,
     P: Fn(u64) + Sync,
 {
+    on_live_recording();
     let checkpoint_path = staging_dir.join("dash-live-checkpoint.json");
     let mut checkpoint: DashLiveTaskCheckpoint =
         read_live_checkpoint(&checkpoint_path).unwrap_or_default();
@@ -1814,8 +3350,21 @@ where
         checkpoint.cursor = refresh.next_cursor;
         write_live_checkpoint(&checkpoint_path, &checkpoint)?;
         on_progress(checkpoint.total_bytes);
+        if should_finish() {
+            let parts = committed_live_parts(staging_dir)?;
+            if parts.is_empty() {
+                return Err(NativeMediaTaskError::Resolution(
+                    "DASH live source ended before any media was committed".to_owned(),
+                ));
+            }
+            return Ok((parts, checkpoint.total_bytes));
+        }
         tick = tick.saturating_add(1);
-        sleep_live_refresh(refresh.reload_after_millis, should_cancel)?;
+        sleep_live_refresh(
+            refresh.reload_after_millis,
+            should_cancel,
+            should_finish,
+        )?;
     }
 }
 
@@ -1907,7 +3456,11 @@ where
     Ok(())
 }
 
-fn sleep_live_refresh<F>(millis: u64, should_cancel: &F) -> Result<(), NativeMediaTaskError>
+fn sleep_live_refresh<F>(
+    millis: u64,
+    should_cancel: &F,
+    should_finish: &dyn Fn() -> bool,
+) -> Result<(), NativeMediaTaskError>
 where
     F: Fn() -> bool + Sync,
 {
@@ -1918,35 +3471,13 @@ where
                 "native live refresh was cancelled".to_owned(),
             ));
         }
+        if should_finish() {
+            return Ok(());
+        }
         let remaining = deadline.saturating_duration_since(Instant::now());
         std::thread::sleep(remaining.min(std::time::Duration::from_millis(100)));
     }
     Ok(())
-}
-
-fn best_dash_representation_indices(manifest: &DashManifest) -> Option<(usize, usize, usize)> {
-    type DashRepresentationScore = ((u64, u64), (usize, usize, usize));
-    let mut best: Option<DashRepresentationScore> = None;
-    for (period_index, period) in manifest.periods.iter().enumerate() {
-        for (adaptation_index, adaptation) in period.adaptations.iter().enumerate() {
-            for (representation_index, representation) in
-                adaptation.representations.iter().enumerate()
-            {
-                let score = (
-                    u64::from(representation.width.unwrap_or(0))
-                        .saturating_mul(u64::from(representation.height.unwrap_or(0))),
-                    representation.bandwidth.unwrap_or(0),
-                );
-                if best.as_ref().map_or(true, |(current, _)| score > *current) {
-                    best = Some((
-                        score,
-                        (period_index, adaptation_index, representation_index),
-                    ));
-                }
-            }
-        }
-    }
-    best.map(|(_, indices)| indices)
 }
 
 fn transition_native_task(
@@ -1967,6 +3498,11 @@ fn transition_native_task(
         if job.run_generation.load(Ordering::Acquire) != generation {
             return Err(format!("Native media task {id} generation changed"));
         }
+        let engine_status = if job.live_recording && job.finish_requested.load(Ordering::Acquire) {
+            "live-recording-finishing"
+        } else {
+            engine_status
+        };
         transition_task_state(&mut job.task, next, engine_status)?;
         job.task.clone()
     };
@@ -1975,6 +3511,35 @@ fn transition_native_task(
     }
     state.mark_dirty();
     Ok(())
+}
+
+fn mark_native_live_recording(state: &SharedState, id: &str, generation: u64) {
+    let task = {
+        let mut jobs = match state.native_media_jobs.lock() {
+            Ok(jobs) => jobs,
+            Err(_) => return,
+        };
+        let Some(job) = jobs.get_mut(id) else {
+            return;
+        };
+        if job.run_generation.load(Ordering::Acquire) != generation {
+            return;
+        }
+        job.live_recording = true;
+        job.task.engine_status = Some(
+            if job.finish_requested.load(Ordering::Acquire) {
+                "live-recording-finishing"
+            } else {
+                "live-recording"
+            }
+            .to_owned(),
+        );
+        job.task.clone()
+    };
+    if let Ok(mut snapshot) = state.task_snapshot.lock() {
+        snapshot.insert(id.to_owned(), task);
+    }
+    state.mark_dirty();
 }
 
 fn update_native_progress(state: &SharedState, id: &str, generation: u64, bytes: u64) {
@@ -2171,7 +3736,12 @@ fn finish_native_cancelled(state: &SharedState, id: &str, generation: u64) {
         }
         let current = TaskState::from_status(&job.task.status);
         if current != Some(TaskState::Paused) {
-            let _ = transition_task_state(&mut job.task, TaskState::Paused, "paused");
+            let engine_status = if job.live_recording {
+                "live-recording-paused"
+            } else {
+                "paused"
+            };
+            let _ = transition_task_state(&mut job.task, TaskState::Paused, engine_status);
         }
         job.task.speed_bytes_per_sec = 0;
         job.task.clone()
@@ -2779,7 +4349,7 @@ fn resolve_native_media(
                 }
                 ensure_requested_audio_container(stream, body.media_options.as_ref())?;
                 ensure_native_remux_policy(stream, body.media_options.as_ref())?;
-                let mut resolved = resolved_from_descriptor(&extraction.descriptor, stream)?;
+                let mut resolved = resolved_from_descriptor(&extraction.descriptor, stream, body)?;
                 attach_native_chapters(&mut resolved, extraction.chapters.clone());
                 Ok(resolved)
             }
@@ -2890,7 +4460,7 @@ fn resolve_native_media(
     ensure_requested_audio_container(stream, body.media_options.as_ref())?;
     ensure_native_remux_policy(stream, body.media_options.as_ref())?;
 
-    resolved_from_descriptor(&descriptor, stream)
+    resolved_from_descriptor(&descriptor, stream, body)
 }
 
 fn ensure_native_remux_policy(
@@ -3663,6 +5233,7 @@ fn attach_native_chapters(resolved: &mut ResolvedNativeMedia, chapters: Vec<Medi
 fn resolved_from_descriptor(
     descriptor: &MediaDescriptor,
     stream: &MediaStream,
+    body: &CreateDownloadBody,
 ) -> Result<ResolvedNativeMedia, NativeMediaTaskError> {
     match stream.protocol {
         MediaProtocol::Http | MediaProtocol::Https => {
@@ -3683,9 +5254,32 @@ fn resolved_from_descriptor(
             }))
         }
         MediaProtocol::Hls | MediaProtocol::Dash => {
+            let mode = native_selection_preferences(body.media_options.as_ref())
+                .map_err(NativeMediaTaskError::InvalidRequest)?
+                .mode;
+            let default_source_container = match (mode, stream.protocol) {
+                (MediaSelectionMode::Audio, _) => None,
+                (MediaSelectionMode::Video, MediaProtocol::Hls) => Some("ts"),
+                (MediaSelectionMode::Video, MediaProtocol::Dash) => Some("mp4"),
+                (MediaSelectionMode::Video, MediaProtocol::Http | MediaProtocol::Https) => None,
+            };
+            let source_container = stream.container.as_deref().or(default_source_container);
+            let output_container = requested_output_extension(
+                body.media_options.as_ref(),
+                mode,
+                source_container,
+            )
+            .map_err(NativeMediaTaskError::InvalidRequest)?;
             Ok(ResolvedNativeMedia::Manifest(ResolvedManifestMedia {
                 descriptor: descriptor.clone(),
                 stream: stream.clone(),
+                mode,
+                max_height: body
+                    .media_options
+                    .as_ref()
+                    .and_then(|options| options.quality.as_deref())
+                    .and_then(parse_quality_height),
+                output_container,
                 chapters: Vec::new(),
             }))
         }
@@ -4403,6 +5997,93 @@ mod tests {
     }
 
     #[test]
+    fn native_manifest_audio_defaults_to_m4a_before_resolving_output_path() {
+        let mut request = body("https://cdn.test/live.m3u8");
+        request.media_options.as_mut().expect("media").mode = Some("audio".to_owned());
+
+        let output = apply_native_manifest_output_defaults(
+            &mut request,
+            MediaSelectionMode::Audio,
+            MediaProtocol::Hls,
+            Some("mpegts"),
+        )
+        .expect("manifest audio output defaults");
+
+        let options = request.media_options.as_ref();
+        assert_eq!(output, "m4a");
+        assert_eq!(
+            requested_output_extension(options, MediaSelectionMode::Audio, Some("mpegts"))
+                .expect("M4A is the default manifest audio container"),
+            "m4a"
+        );
+        assert!(media_transcoding_requested(options, Some("mpegts"))
+            .expect("default M4A output requires native conversion or remux"));
+
+        request
+            .media_options
+            .as_mut()
+            .expect("media")
+            .audio_format = Some("mp3".to_owned());
+        let output = apply_native_manifest_output_defaults(
+            &mut request,
+            MediaSelectionMode::Audio,
+            MediaProtocol::Hls,
+            Some("mpegts"),
+        )
+        .expect("explicit manifest audio output");
+        assert_eq!(output, "mp3");
+        assert_eq!(
+            requested_output_extension(
+                request.media_options.as_ref(),
+                MediaSelectionMode::Audio,
+                Some("mpegts"),
+            )
+            .expect("explicit MP3 choice is preserved"),
+            "mp3"
+        );
+    }
+
+    #[test]
+    fn native_manifest_video_output_defaults_match_protocol_or_declared_container() {
+        let mut hls_request = body("https://cdn.test/master.m3u8");
+        let hls_output = apply_native_manifest_output_defaults(
+            &mut hls_request,
+            MediaSelectionMode::Video,
+            MediaProtocol::Hls,
+            None,
+        )
+        .expect("HLS output defaults");
+        assert_eq!(hls_output, "ts");
+        assert_eq!(
+            hls_request
+                .media_options
+                .as_ref()
+                .and_then(|options| options.remux_format.as_deref()),
+            Some("ts")
+        );
+
+        let mut dash_request = body("https://cdn.test/stream.mpd");
+        let dash_output = apply_native_manifest_output_defaults(
+            &mut dash_request,
+            MediaSelectionMode::Video,
+            MediaProtocol::Dash,
+            None,
+        )
+        .expect("DASH output defaults");
+        assert_eq!(dash_output, "mp4");
+
+        let mut webm_request = body("https://cdn.test/stream.mpd");
+        let webm_output = apply_native_manifest_output_defaults(
+            &mut webm_request,
+            MediaSelectionMode::Video,
+            MediaProtocol::Dash,
+            Some("webm"),
+        )
+        .expect("declared WebM output");
+        assert_eq!(webm_output, "webm");
+    }
+
+    #[test]
     fn native_audio_mode_accepts_supported_transcoding_output_formats() {
         let mut request = body("https://cdn.test/audio");
         let media = request.media_options.as_mut().expect("media");
@@ -4744,6 +6425,70 @@ mod tests {
     }
 
     #[test]
+    fn native_hls_master_selects_external_audio_and_parses_track_codecs() {
+        let manifest = parse_hls(
+            "https://media.test/master.m3u8",
+            concat!(
+                "#EXTM3U\n",
+                "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"main\",NAME=\"English\",",
+                "DEFAULT=YES,AUTOSELECT=YES,URI=\"audio/index.m3u8\"\n",
+                "#EXT-X-STREAM-INF:BANDWIDTH=2000000,RESOLUTION=1280x720,",
+                "CODECS=\"avc1.4d401f,mp4a.40.2\",AUDIO=\"main\"\n",
+                "video/index.m3u8\n",
+                "#EXT-X-STREAM-INF:BANDWIDTH=5000000,RESOLUTION=1920x1080,",
+                "CODECS=\"avc1.4d401f,mp4a.40.2\",AUDIO=\"main\"\n",
+                "video/high.m3u8\n",
+            ),
+        )
+        .expect("parse HLS master fixture");
+        let variant = select_hls_variant(&manifest, None).expect("select HLS video variant");
+        let capped_variant = select_hls_variant(&manifest, Some(720))
+            .expect("select HLS video variant within quality limit");
+        let audio = select_hls_audio_rendition(&manifest, "main")
+            .expect("select default HLS audio rendition");
+
+        assert_eq!(variant.resolution, Some((1920, 1080)));
+        assert_eq!(capped_variant.resolution, Some((1280, 720)));
+        assert_eq!(audio.uri.as_deref(), Some("https://media.test/audio/index.m3u8"));
+        assert_eq!(
+            hls_codec_for_track(&variant.codecs, false).as_deref(),
+            Some("avc1.4d401f")
+        );
+        assert_eq!(
+            hls_codec_for_track(&variant.codecs, true).as_deref(),
+            Some("mp4a.40.2")
+        );
+    }
+
+    #[test]
+    fn native_dash_selects_video_and_audio_representations_in_the_same_period() {
+        let manifest = parse_dash(concat!(
+            "<MPD mediaPresentationDuration=\"PT4S\"><Period>",
+            "<AdaptationSet contentType=\"video\" mimeType=\"video/mp4\" codecs=\"avc1.64001f\">",
+            "<Representation id=\"v360\" bandwidth=\"400000\" width=\"640\" height=\"360\"/>",
+            "<Representation id=\"v720\" bandwidth=\"1200000\" width=\"1280\" height=\"720\"/>",
+            "</AdaptationSet>",
+            "<AdaptationSet contentType=\"audio\" mimeType=\"audio/mp4\" codecs=\"mp4a.40.2\">",
+            "<Representation id=\"a128\" bandwidth=\"128000\"/>",
+            "<Representation id=\"a256\" bandwidth=\"256000\"/>",
+            "</AdaptationSet>",
+            "</Period></MPD>",
+        ))
+        .expect("parse DASH audio/video fixture");
+        let video = best_dash_track_indices(&manifest, DashTrackKind::Video, None, None)
+            .expect("select DASH video representation");
+        let capped_video = best_dash_track_indices(&manifest, DashTrackKind::Video, None, Some(480))
+            .expect("select DASH video representation within quality limit");
+        let audio = best_dash_track_indices(&manifest, DashTrackKind::Audio, Some(video.0), None)
+            .expect("select DASH audio representation");
+
+        assert_eq!(manifest.periods[video.0].adaptations[video.1].representations[video.2].id.as_deref(), Some("v720"));
+        assert_eq!(manifest.periods[capped_video.0].adaptations[capped_video.1].representations[capped_video.2].id.as_deref(), Some("v360"));
+        assert_eq!(manifest.periods[audio.0].adaptations[audio.1].representations[audio.2].id.as_deref(), Some("a256"));
+        assert_eq!(audio.0, video.0);
+    }
+
+    #[test]
     fn native_hls_wrapper_follows_master_and_stages_media() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind HLS wrapper server");
         let address = listener.local_addr().expect("HLS address");
@@ -4783,22 +6528,34 @@ mod tests {
 
         let dir = unique_temp_dir("nova-native-hls-wrapper");
         let progress = std::sync::Mutex::new(Vec::new());
-        let (parts, bytes) = stage_hls_stream(
+        let staged = stage_hls_stream(
             &format!("http://{address}/master.m3u8"),
             &HttpRequestContext::default(),
             &dir,
             2,
+            MediaSelectionMode::Video,
+            None,
+            "mp4",
+            nova_media_core::MediaTrackKind::AudioVideo,
+            None,
+            None,
+            None,
             &|| false,
+            &|| false,
+            &|| {},
             &|value| progress.lock().expect("progress").push(value),
         )
         .expect("stage native HLS wrapper");
         server.join().expect("HLS wrapper server");
 
-        assert_eq!(bytes, 7);
-        assert_eq!(parts.len(), 2);
+        assert_eq!(staged.staged_bytes, 7);
+        assert_eq!(staged.parts.len(), 2);
+        assert_eq!(staged.input_container.as_deref(), Some("mpegts"));
+        assert_eq!(staged.kind, nova_media_core::MediaTrackKind::AudioVideo);
         assert_eq!(progress.lock().expect("progress").last().copied(), Some(7));
         let output = dir.join("assembled.ts");
-        let assembled = assemble_ordered_parts(&parts, &output).expect("assemble HLS wrapper");
+        let assembled =
+            assemble_ordered_parts(&staged.parts, &output).expect("assemble HLS wrapper");
         assert_eq!(assembled.bytes, 7);
         assert_eq!(std::fs::read(&output).expect("HLS output"), b"AAABBBB");
         let _ = std::fs::remove_dir_all(dir);
@@ -4838,22 +6595,32 @@ mod tests {
 
         let dir = unique_temp_dir("nova-native-dash-wrapper");
         let progress = std::sync::Mutex::new(Vec::new());
-        let (parts, bytes) = stage_dash_stream(
+        let staged = stage_dash_stream(
             &format!("http://{address}/stream.mpd"),
             &HttpRequestContext::default(),
             &dir,
             2,
+            MediaSelectionMode::Video,
+            None,
+            "mp4",
+            nova_media_core::MediaTrackKind::AudioVideo,
+            None,
             &|| false,
+            &|| false,
+            &|| {},
             &|value| progress.lock().expect("progress").push(value),
         )
         .expect("stage native DASH wrapper");
         server.join().expect("DASH wrapper server");
 
-        assert_eq!(bytes, 9);
-        assert_eq!(parts.len(), 2);
+        assert_eq!(staged.staged_bytes, 9);
+        assert_eq!(staged.parts.len(), 2);
+        assert_eq!(staged.input_container.as_deref(), Some("mp4"));
+        assert_eq!(staged.kind, nova_media_core::MediaTrackKind::Video);
         assert_eq!(progress.lock().expect("progress").last().copied(), Some(9));
         let output = dir.join("assembled.mp4");
-        let assembled = assemble_ordered_parts(&parts, &output).expect("assemble DASH wrapper");
+        let assembled =
+            assemble_ordered_parts(&staged.parts, &output).expect("assemble DASH wrapper");
         assert_eq!(assembled.bytes, 9);
         assert_eq!(std::fs::read(&output).expect("DASH output"), b"INITMEDIA");
         let _ = std::fs::remove_dir_all(dir);
@@ -4925,6 +6692,8 @@ mod tests {
             &dir,
             2,
             &|| false,
+            &|| false,
+            &|| {},
             &|value| progress.lock().expect("progress").push(value),
         )
         .expect("record live HLS");
@@ -4945,6 +6714,56 @@ mod tests {
             std::fs::read(&output).expect("live HLS output"),
             b"SEVENEIGHT"
         );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn native_hls_live_finish_finalizes_the_current_checkpoint() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind HLS finish server");
+        let address = listener.local_addr().expect("HLS finish address");
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept HLS segment request");
+            let mut request = [0_u8; 4096];
+            let read = stream.read(&mut request).expect("read HLS segment request");
+            assert!(String::from_utf8_lossy(&request[..read]).contains("GET /1.ts "));
+            let body = b"LIVE";
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            stream
+                .write_all(response.as_bytes())
+                .and_then(|_| stream.write_all(body))
+                .expect("write HLS segment response");
+        });
+        let manifest_url = format!("http://{address}/live.m3u8");
+        let manifest = parse_hls(
+            &manifest_url,
+            &format!(
+                "#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:1\n#EXT-X-TARGETDURATION:2\n#EXTINF:2,\nhttp://{address}/1.ts\n"
+            ),
+        )
+        .expect("parse live HLS fixture");
+        let dir = unique_temp_dir("nova-native-hls-live-finish");
+        let marked_live = std::sync::atomic::AtomicBool::new(false);
+        let (parts, bytes) = stage_hls_live_stream(
+            &manifest_url,
+            manifest,
+            &HttpRequestContext::default(),
+            &dir,
+            1,
+            &|| false,
+            &|| true,
+            &|| marked_live.store(true, Ordering::Release),
+            &|_| {},
+        )
+        .expect("finish live HLS after its current window");
+        server.join().expect("HLS finish server");
+
+        assert!(marked_live.load(Ordering::Acquire));
+        assert_eq!(bytes, 4);
+        assert_eq!(parts.len(), 1);
+        assert!(dir.join("hls-live-checkpoint.json").is_file());
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -4990,7 +6809,8 @@ mod tests {
         let body = String::from_utf8(first.body).expect("dynamic DASH UTF-8");
         let manifest = parse_dash(&body).expect("dynamic DASH parse");
         let (period, adaptation, representation) =
-            best_dash_representation_indices(&manifest).expect("DASH representation");
+            best_dash_track_indices(&manifest, DashTrackKind::Video, None, None)
+                .expect("DASH video representation");
         let dir = unique_temp_dir("nova-native-dash-live-task");
         let checkpoint_path = dir.join("dash-live-checkpoint.json");
         let cancelled = std::sync::Arc::new(AtomicBool::new(false));
@@ -5018,6 +6838,8 @@ mod tests {
             &dir,
             2,
             &|| cancelled.load(Ordering::Acquire),
+            &|| false,
+            &|| {},
             &|_| {},
         );
         cancel_watcher.join().expect("dynamic DASH cancel watcher");
@@ -5037,6 +6859,69 @@ mod tests {
             std::fs::read(&output).expect("dynamic DASH output"),
             b"INITMEDIA"
         );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn native_dynamic_dash_finish_finalizes_the_current_checkpoint() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind DASH finish server");
+        let address = listener.local_addr().expect("DASH finish address");
+        let server = std::thread::spawn(move || {
+            for _ in 0..2 {
+                let (mut stream, _) = listener.accept().expect("accept DASH segment request");
+                let mut request = [0_u8; 4096];
+                let read = stream.read(&mut request).expect("read DASH segment request");
+                let request = String::from_utf8_lossy(&request[..read]);
+                let body: &[u8] = if request.contains("GET /init.mp4 ") {
+                    b"INIT"
+                } else if request.contains("GET /10.m4s ") {
+                    b"MEDIA"
+                } else {
+                    panic!("unexpected DASH finish request: {request}");
+                };
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                stream
+                    .write_all(response.as_bytes())
+                    .and_then(|_| stream.write_all(body))
+                    .expect("write DASH finish response");
+            }
+        });
+        let manifest_url = format!("http://{address}/live.mpd");
+        let manifest = parse_dash(
+            &format!(
+                "<MPD type=\"dynamic\" minimumUpdatePeriod=\"PT1S\"><Period><AdaptationSet contentType=\"video\"><SegmentTemplate timescale=\"1\" initialization=\"init.mp4\" media=\"$Time$.m4s\"><SegmentTimeline><S t=\"10\" d=\"2\"/></SegmentTimeline></SegmentTemplate><Representation id=\"v1\" bandwidth=\"1000\" width=\"640\" height=\"360\"/></AdaptationSet></Period></MPD>"
+            ),
+        )
+        .expect("parse dynamic DASH fixture");
+        let (period, adaptation, representation) =
+            best_dash_track_indices(&manifest, DashTrackKind::Video, None, None)
+                .expect("select dynamic DASH video track");
+        let dir = unique_temp_dir("nova-native-dash-live-finish");
+        let marked_live = std::sync::atomic::AtomicBool::new(false);
+        let (parts, bytes) = stage_dash_live_stream(
+            &manifest_url,
+            manifest,
+            period,
+            adaptation,
+            representation,
+            &HttpRequestContext::default(),
+            &dir,
+            1,
+            &|| false,
+            &|| true,
+            &|| marked_live.store(true, Ordering::Release),
+            &|_| {},
+        )
+        .expect("finish live DASH after its current window");
+        server.join().expect("DASH finish server");
+
+        assert!(marked_live.load(Ordering::Acquire));
+        assert_eq!(bytes, 9);
+        assert_eq!(parts.len(), 2);
+        assert!(dir.join("dash-live-checkpoint.json").is_file());
         let _ = std::fs::remove_dir_all(dir);
     }
 

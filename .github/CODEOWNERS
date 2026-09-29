@@ -1,9 +1,6 @@
 # Default owner for everything
 * @Alaa91H
 
-# Frontend
-/src/ @Alaa91H
-
 # Rust backend
 /src-tauri/ @Alaa91H
 

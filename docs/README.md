@@ -9,7 +9,7 @@ This directory is the canonical documentation home for NOVA Download Manager. Th
 ## Architecture
 
 - [Project structure](architecture/PROJECT_STRUCTURE.md) — canonical source tree, generated-file policy, and repository ownership model.
-- [Engine compatibility](architecture/ENGINE_COMPATIBILITY.md) — libcurl multi, yt-dlp, FFmpeg, runtime validation, and capability contracts.
+- [Engine compatibility](architecture/ENGINE_COMPATIBILITY.md) — native libcurl, media and torrent engines, runtime validation, and capability contracts.
 - [Capability gating](architecture/CAPABILITY_GATING.md) — how desktop UI and browser extension consume runtime engine capabilities.
 
 ## Browser extension
@@ -33,7 +33,7 @@ This directory is the canonical documentation home for NOVA Download Manager. Th
 
 - [v2.4.3-alpha delivery record](verification/RELEASE_V2.4.3_ALPHA_DELIVERY.md) — published-release status, platform-build evidence, asset integrity verification, and the disclosed checksum-manifest correction.
 - [Managed tools and browser extension verification](verification/MANAGED_TOOLS_AND_EXTENSION_VERIFICATION_2026-08-20.md) — exact implementation scope, live acceptance evidence, quality gates, and platform boundaries for the current working-tree repair.
-- [Signed updater readiness](verification/SIGNED_UPDATER_READINESS_2026-08-21.md) — verified update-channel gap analysis, release integrity evidence, and the exact trusted inputs required before in-app updates can be enabled.
+- [Historical signed updater readiness report](verification/SIGNED_UPDATER_READINESS_2026-08-21.md) — Tauri-era update-channel evidence, superseded by the Qt desktop migration.
 - [Daemon lifecycle live verification](verification/DAEMON_LIFECYCLE_LIVE_VERIFICATION_2026-08-21.md) — real dynamic-port, native-messaging pairing, port-file, and graceful-shutdown acceptance evidence.
 - [yt-dlp installation source notes](research/ytdlp-installation-sources.md) — upstream release-file facts used by NOVA's managed-install design.
 

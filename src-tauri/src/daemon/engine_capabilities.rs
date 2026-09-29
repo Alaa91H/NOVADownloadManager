@@ -1256,8 +1256,10 @@ pub fn native_media_status() -> Value {
             "dashTaskExecution": true,
             "dashStaticTaskExecution": true,
             "dashDynamicTaskExecution": true,
-            "manifestTaskExecutionCoverage": "single-representation-native",
+            "manifestTaskExecutionCoverage": "native-hls-dash-track-selection-with-checkpointed-live-audio-video-mux",
+            "manifestDashMultiPeriod": false,
             "manifestPauseResume": true,
+            "liveRecordingFinish": "checkpointed-finalization",
             "manifestAtomicAssembly": true,
             "separateTrackTaskExecution": true,
             "separateTrackMuxBackend": "container-dependent",
@@ -1269,7 +1271,9 @@ pub fn native_media_status() -> Value {
             "playlistProbe": true,
             "playlistPagination": true,
             "playlists": true,
-            "playlistTaskCreation": "client-batched-native",
+            "playlistTaskCreation": "native-batch-endpoint",
+            "playlistTaskBatchLimit": crate::daemon::native_media::MAX_NATIVE_MEDIA_PLAYLIST_ITEMS,
+            "playlistPartialResults": true,
             "formatSorting": true,
             "formatSelector": "stream-id-or-itag",
             "audioExtraction": true,
@@ -1630,9 +1634,14 @@ mod tests {
         assert_eq!(status["capabilities"]["dashTaskExecution"], true);
         assert_eq!(status["capabilities"]["dashDynamicTaskExecution"], true);
         assert_eq!(
-            status["capabilities"]["manifestTaskExecutionCoverage"],
-            "single-representation-native"
+            status["capabilities"]["liveRecordingFinish"],
+            "checkpointed-finalization"
         );
+        assert_eq!(
+            status["capabilities"]["manifestTaskExecutionCoverage"],
+            "native-hls-dash-track-selection-with-checkpointed-live-audio-video-mux"
+        );
+        assert_eq!(status["capabilities"]["manifestDashMultiPeriod"], false);
         assert_eq!(status["capabilities"]["separateTrackTaskExecution"], true);
         assert_eq!(status["capabilities"]["nativeMp4MultitrackMux"], true);
         assert_eq!(
@@ -1650,7 +1659,11 @@ mod tests {
         assert_eq!(status["capabilities"]["playlists"], true);
         assert_eq!(
             status["capabilities"]["playlistTaskCreation"],
-            "client-batched-native"
+            "native-batch-endpoint"
+        );
+        assert_eq!(
+            status["capabilities"]["playlistTaskBatchLimit"],
+            crate::daemon::native_media::MAX_NATIVE_MEDIA_PLAYLIST_ITEMS
         );
         assert_eq!(status["capabilities"]["audioExtraction"], true);
         assert_eq!(status["capabilities"]["cookiesFromBrowser"], true);

@@ -31,6 +31,7 @@ QVariant DownloadListModel::data(const QModelIndex &index, int role) const {
     case ElapsedRole: return item.elapsedSeconds;
     case SavePathRole: return item.savePath;
     case EngineRole: return item.engine;
+    case EngineStatusRole: return item.engineStatus;
     case FileTypeRole: return item.fileType;
     case CategoryRole: return item.category;
     case QueueIdRole: return item.queueId;
@@ -59,6 +60,7 @@ QHash<int, QByteArray> DownloadListModel::roleNames() const {
         {ElapsedRole, "elapsedSeconds"},
         {SavePathRole, "savePath"},
         {EngineRole, "engine"},
+        {EngineStatusRole, "engineStatus"},
         {FileTypeRole, "fileType"},
         {CategoryRole, "category"},
         {QueueIdRole, "queueId"},
@@ -98,6 +100,7 @@ QVariantMap DownloadListModel::itemAt(int row) const {
     result.insert(QStringLiteral("elapsedSeconds"), item.elapsedSeconds);
     result.insert(QStringLiteral("savePath"), item.savePath);
     result.insert(QStringLiteral("engine"), item.engine);
+    result.insert(QStringLiteral("engineStatus"), item.engineStatus);
     result.insert(QStringLiteral("fileType"), item.fileType);
     result.insert(QStringLiteral("category"), item.category);
     result.insert(QStringLiteral("queueId"), item.queueId);
@@ -131,6 +134,7 @@ QVariantMap DownloadListModel::itemById(const QString &taskId) const {
         result.insert(QStringLiteral("elapsedSeconds"), item.elapsedSeconds);
         result.insert(QStringLiteral("savePath"), item.savePath);
         result.insert(QStringLiteral("engine"), item.engine);
+        result.insert(QStringLiteral("engineStatus"), item.engineStatus);
         result.insert(QStringLiteral("fileType"), item.fileType);
         result.insert(QStringLiteral("category"), item.category);
         result.insert(QStringLiteral("queueId"), item.queueId);
@@ -425,6 +429,7 @@ void DownloadListModel::replaceFromJson(const QJsonArray &downloads) {
         item.elapsedSeconds = object.value(QStringLiteral("elapsedSeconds")).toInt();
         item.savePath = object.value(QStringLiteral("savePath")).toString();
         item.engine = object.value(QStringLiteral("engine")).toString();
+        item.engineStatus = object.value(QStringLiteral("engineStatus")).toString();
         item.fileType = object.value(QStringLiteral("fileType")).toString();
         item.category = object.value(QStringLiteral("category")).toString();
         item.queueId = object.value(QStringLiteral("queueId")).toString();

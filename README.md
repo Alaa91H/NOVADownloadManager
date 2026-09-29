@@ -41,6 +41,7 @@ NOVA is designed as a **native desktop download manager with a separate, capabil
 | 🧩 | **Multi-connection downloads** | Segmented byte-range transfers when the remote server supports Range requests. |
 | ⏯️ | **Pause & resume** | Checkpoint-aware resume paths that preserve owned partial download data when the server allows it. |
 | 🎬 | **Native media workflows** | NOVA-owned extraction, playlist, HLS/DASH, mux, subtitle, and local conversion paths, with codec/container choices reported from the linked Rust registries. |
+| 🧲 | **Native torrent engine** | In-process BitTorrent v1 magnet and `.torrent` tasks with verified piece storage, file priorities, resumable lifecycle controls, and configurable seeding. |
 | 🌐 | **Browser integration** | Manifest V3 companion for Chromium-family browsers and Firefox, paired with NOVA locally. |
 | 🗂️ | **Serious task management** | Queues, priorities, retries, categories, mirrors, checksums, bandwidth controls, rules, and schedules. |
 | 🔎 | **Focused desktop UX** | Search, filtering, sorting, configurable columns, task inspector, live metrics, and speed history. |
@@ -74,6 +75,7 @@ flowchart LR
 
     CORE --> CURL["libcurl multi<br/>Direct transfers"]
     CORE --> MEDIA["NOVA Media Engine<br/>In-process Rust codecs"]
+    CORE --> TORRENT["NOVA Torrent Engine<br/>Verified BitTorrent v1"]
     CORE --> TASKS["Queues · Scheduler<br/>Rules · Persistence"]
     CORE --> GUARD["Capability & security<br/>validation"]
 ```

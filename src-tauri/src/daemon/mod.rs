@@ -1003,6 +1003,21 @@ fn restore_persisted_tasks(
             let request = restored.native_media_requests.get(&task.id).cloned();
             if task.status != "completed" {
                 if let Some(request) = request {
+                    let live_staging_dir = std::path::Path::new(&state.data_dir)
+                        .join("native-media")
+                        .join(&task.id)
+                        .join("working");
+                    let live_recording = [
+                        "hls-live-checkpoint.json",
+                        "dash-live-checkpoint.json",
+                        "hls-live-pair-checkpoint.json",
+                        "dash-live-pair-checkpoint.json",
+                    ]
+                    .iter()
+                    .any(|checkpoint| live_staging_dir.join(checkpoint).is_file());
+                    if live_recording {
+                        task.engine_status = Some("live-recording-paused".to_owned());
+                    }
                     if let Ok(mut jobs) = state.native_media_jobs.lock() {
                         jobs.insert(
                             task.id.clone(),
@@ -1021,6 +1036,8 @@ fn restore_persisted_tasks(
                                         }
                                     }),
                                 cancel_token: Arc::new(AtomicBool::new(false)),
+                                finish_requested: Arc::new(AtomicBool::new(false)),
+                                live_recording,
                                 run_generation: Arc::new(AtomicU64::new(0)),
                                 start_time: Instant::now(),
                             },

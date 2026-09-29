@@ -1,10 +1,10 @@
 # NOVA Native Desktop UI
 
-This directory is the independent next-generation desktop interface for NOVA Download Manager.
+This directory contains NOVA Download Manager's sole desktop interface.
 
 ## Scope
 
-The native interface is intentionally isolated from the existing React/Tauri frontend. The legacy UI remains the production reference until the native implementation reaches feature parity and passes the migration gates documented in `docs/NATIVE_UI_MIGRATION.md`.
+The Qt/QML application is the desktop product interface and communicates with the Rust daemon through its authenticated local API. The retired React/Tauri desktop frontend and its build entry points have been removed. The browser extension remains a separate React application in `browser-extension/`.
 
 The new UI uses:
 
@@ -48,7 +48,7 @@ Production native builds use an automatic bootstrap: the Qt UI first discovers a
 
 ## Current milestone
 
-The branch is now in **Stage 6.1 — True Parity & Production Hardening**.
+The project is in **Stage 7 — Native Primary**. Remaining parity and release blockers are tracked in `parity/parity-manifest.json`; they describe production readiness, not a second desktop frontend.
 
 Implemented native surfaces include:
 
@@ -68,7 +68,7 @@ Implemented native surfaces include:
 - Packaged Native Messaging protocol smoke on the six preview targets plus a cross-source identity contract that derives the Chromium ID from the extension public key and locks Qt/Rust/browser host identity
 - Approved NOVA desktop shell implemented as the visual baseline: frameless title bar, compact icon rail, single-row icon command bar, numbered/file-type download table, optional details panel with live speed chart, one-line status summary, and persistent live customization for layout density, accent color, corner radius and panel visibility
 
-## Stage 6.1 parity and preview builds
+## Parity and preview builds
 
 `desktop-native/parity/parity-manifest.json` is the machine-readable parity source of truth.
 
@@ -92,9 +92,9 @@ The native test suite also launches a Qt window through the offscreen platform a
 
 `check-release-localization.mjs` enforces the current release policy: only English and Arabic are exposed, and the Arabic dictionary must contain a non-empty translation for every English key. The legacy localization bridge remains in the codebase for later language expansion after the interface is complete. `check-native-accessibility.mjs` requires every TextField to expose an accessible name, keeps monospace technical inputs explicitly LTR, and rejects fixed numeric font sizes that bypass text scaling. It also requires every ListView to be Tab/arrow-key reachable, expose List/ListItem focus-selection semantics to screen readers, and show a visible focus indicator; destructive confirmation dialogs keep explicit safe focus loops. `check-native-contrast.mjs` enforces 4.5:1 normal-text and 3:1 keyboard-focus contrast across the normal light/dark surfaces.
 
-The parity command writes `build/native-parity-report.md`. The production replacement gate is `node desktop-native/scripts/check-parity.mjs --require-complete`; it must remain failing until every capability is covered and `releaseReplacementReady` is explicitly enabled.
+The parity command writes `build/native-parity-report.md`. The production release gate is `node desktop-native/scripts/check-parity.mjs --require-complete`; it must remain failing until every capability is covered and `releaseReplacementReady` is explicitly enabled.
 
-On the feature branch, GitHub Actions builds native preview artifacts for Windows, Linux and macOS. Each bundle contains:
+On `main`, GitHub Actions builds native preview artifacts for Windows, Linux and macOS. Each bundle contains:
 
 - the installed native executable/application files;
 - `BUILD_INFO.txt` with commit/platform metadata;
@@ -103,4 +103,4 @@ On the feature branch, GitHub Actions builds native preview artifacts for Window
 - Linux: runtime dependency report for QA environments.
 - all six platform/architecture preview jobs run the packaged `nova-native-host` through a Native Messaging framing smoke test that verifies pairing proof and authenticated capture forwarding before artifact upload.
 
-Known blockers remain explicit in the parity manifest and must be resolved before Stage 7 replacement.
+Known blockers remain explicit in the parity manifest and must be resolved before a production release.

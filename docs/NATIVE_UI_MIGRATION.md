@@ -18,7 +18,8 @@ Qt Native UI
 NOVA Rust runtime
     |
     +-- libcurl multi / nova-download-core
-    +-- yt-dlp + FFmpeg
+    +-- nova-media-core / nova-stream-core
+    +-- nova-media-processing-core (linked native codecs)
     +-- queues / scheduler / rules
     +-- browser Native Messaging bridge
 ```
@@ -30,6 +31,7 @@ NOVA Rust runtime
 - Queue management and scheduler.
 - Batch import.
 - Media downloader and advanced media options.
+- Native HLS/DASH alternate-audio selection, live recording completion, and playlist batch creation through the authenticated daemon API.
 - Link grabber.
 - Settings, diagnostics and runtime logs.
 - Desktop tray/notifications and platform progress.

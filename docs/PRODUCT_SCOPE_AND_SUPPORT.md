@@ -1,20 +1,21 @@
 # NOVA Download Manager: Product Scope and Support
 
-NOVA Download Manager is an open-source desktop download manager. It combines a React/Tauri desktop interface, a Rust daemon, a direct-file engine based on `libcurl multi`, an optional `yt-dlp` and FFmpeg media workflow, and a browser companion that can hand download candidates to the local desktop service. The project is distributed under the MIT License; third-party engine notices remain subject to their own licenses in [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md).
+NOVA Download Manager is an open-source desktop download manager. Its Qt/QML desktop interface connects to a Rust daemon that owns direct, media, and torrent download engines, local media processing, queues, and browser handoff. The browser companion is a separate extension. The project is distributed under the MIT License; third-party notices remain subject to their own licenses in [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md).
 
-This document describes the product as it is implemented. It deliberately distinguishes capabilities that are available when their runtime prerequisites are present from capabilities that depend on the destination server, external tools, or browser policy.
+This document describes the current native product. Runtime capability responses are authoritative: they distinguish implemented paths from source formats, remote-server behavior, and platform features that are not available in every build.
 
 ## What NOVA can do
 
 | Area | Implemented capability | Important condition or boundary |
 |---|---|---|
-| Direct files | Download HTTP/HTTPS and other runtime-approved direct URLs through an in-process `libcurl multi` engine. | The daemon exposes only protocols and options supported by the linked runtime engine. |
+| Direct files | Download HTTP/HTTPS through the in-process `libcurl multi` engine, with segmented transfer, retries, checksums and recoverable pause/resume. | Segmentation and resume depend on the linked transport capabilities and the server's correct Range and validator behavior. |
 | Multi-connection downloads | Use byte-range segments when the server accepts Range requests and the linked `libcurl` capability check allows segmentation. | A server that ignores or rejects Range requests cannot provide segmented or byte-accurate resume behavior. |
 | Pause and resume | Preserve owned partial output checkpoints and segmented part files, then resume through the applicable Range path. | Resume still requires compatible server behavior; NOVA reports a limitation rather than silently corrupting a file. |
-| Media workflows | Send media URLs and HLS/DASH candidates through `yt-dlp` with optional FFmpeg post-processing. | Media features are disabled when the relevant executable or runtime capability is unavailable. |
+| Media workflows | Use the in-process Rust media engine for supported site extraction and direct, HLS and DASH sources. HLS/DASH supports selected video/audio representations, separate audio renditions, live recording checkpoints, native track muxing, playlist batches and local codec conversion. | Site extraction, manifest layout, codecs, containers and output conversions are capability-gated. Multi-period DASH assembly is not currently advertised. Native paths do not require a separately installed `yt-dlp` or FFmpeg executable. |
+| Torrent transfers | Run BitTorrent v1 magnet and `.torrent` downloads through the in-process Rust engine, including tracker and peer discovery, verified piece storage, resume, per-file priority, pause/resume, and configurable seeding. | Network reachability, tracker policy, peer availability, storage permissions and advertised runtime capabilities determine whether a task can proceed. BitTorrent v2 is not claimed. |
 | Browser handoff | Capture supported download candidates through a Manifest V3 companion and a local-only desktop bridge. | The desktop application must be installed, running, and paired; browser policy and site restrictions still apply. |
 | Queue controls | Manage task queues, categories, priorities, retry settings, bandwidth controls, rules, schedules, mirrors, and checksums. | Individual controls are capability-gated before they reach the daemon. |
-| Accessibility and language | Load interface dictionaries lazily for the maintained language catalog, while retaining English as the synchronous fallback. | Product names, protocols, command syntax, file extensions, and sample values are intentionally not translated. |
+| Accessibility and language | The Qt desktop interface provides English and Arabic dictionaries, RTL layout, keyboard and screen-reader semantics, contrast modes and text scaling. | Desktop release language scope is English and Arabic. Product names, protocols, command syntax, file extensions and sample values remain untranslated. |
 | Releases | Publish installable desktop artifacts, the browser companion packages, an Android ARM64 APK, and `SHA256SUMS.txt` through the release pipeline. | Release availability follows the CI matrix; package-manager metadata files are not published as end-user release assets. |
 
 ## How the download engine makes decisions
@@ -29,7 +30,7 @@ For a partial direct download, NOVA treats a real destination checkpoint as task
 
 The desktop service binds locally and uses a trusted local pairing model for browser handoff. The project also applies protocol controls, local-address validation for outbound work, path checks for file operations, and redaction for configured credential fields. See [`SECURITY.md`](../SECURITY.md), [`architecture/CAPABILITY_GATING.md`](architecture/CAPABILITY_GATING.md), and the extension [privacy model](extension/PRIVACY.md) for implementation details and security boundaries.
 
-NOVA is not a cloud storage service, a VPN, a DRM bypass tool, or a torrent client. It does not remove access controls from websites, and it cannot download content that the selected engine, the remote server, or applicable law does not permit.
+NOVA is not a cloud storage service, VPN or DRM bypass tool. It includes a native BitTorrent v1 client and native media paths, but it cannot bypass source access controls or download content that the selected runtime, remote server or applicable law does not permit.
 
 ## Installation and verification
 
@@ -39,7 +40,7 @@ The browser extension packages are released separately for Chromium/Chrome, Edge
 
 ## Development and quality gates
 
-The root [`README.md`](../README.md) documents local development commands. A normal source change should be checked with the frontend type/lint and unit-test commands, translation validation, the relevant Rust checks, package audits, and a clean diff. Tagged releases are created only after the main CI pipeline completes successfully; published release assets are checked against their checksum manifest.
+The root [`README.md`](../README.md) documents development commands. Desktop work is checked with the Qt localization/accessibility/parity gates and the Rust runtime checks; extension changes use the extension's own build and tests. Local codec and torrent capabilities are validated against their native core suites in CI. Tagged releases are created only after the main CI pipeline completes successfully; published release assets are checked against their checksum manifest.
 
 ## Contact and support
 

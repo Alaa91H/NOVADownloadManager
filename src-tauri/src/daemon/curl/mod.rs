@@ -9,7 +9,7 @@ pub mod transfer_config;
 pub use args::build_curl_args;
 pub use easy_config::init_download_ssl;
 pub use task_api::{
-    create_curl_task, curl_version, delete_task, get_task, list_all_tasks, pause_task,
+    create_curl_task, curl_version, delete_task, finish_live_media_task, get_task, list_all_tasks, pause_task,
     redownload_task, resume_task, update_task_metadata, CurlExtractor,
 };
 pub use transfer::start_curl_process;

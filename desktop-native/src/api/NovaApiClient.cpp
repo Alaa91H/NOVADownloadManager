@@ -534,6 +534,10 @@ void NovaApiClient::resumeDownload(const QString &id) {
     runTaskAction(id, QStringLiteral("resume"));
 }
 
+void NovaApiClient::finishLiveRecording(const QString &id) {
+    runTaskAction(id, QStringLiteral("finish"));
+}
+
 void NovaApiClient::redownloadDownload(const QString &id) {
     runTaskAction(id, QStringLiteral("redownload"));
 }
@@ -1722,6 +1726,7 @@ void NovaApiClient::createMediaDownload(
     body.insert(QStringLiteral("description"), QStringLiteral("Native media downloader request"));
     body.insert(QStringLiteral("startImmediately"), startImmediately);
     body.insert(QStringLiteral("mediaOptions"), options);
+    const bool playlistBatch = options.value(QStringLiteral("playlist")).toBool();
 
     const QString directory = saveDirectory.trimmed();
     if (!directory.isEmpty()) {
@@ -1732,11 +1737,13 @@ void NovaApiClient::createMediaDownload(
     }
 
     auto *reply = m_network.post(
-        makeRequest(QStringLiteral("/api/downloads")),
+        makeRequest(playlistBatch
+            ? QStringLiteral("/api/media/playlist/download")
+            : QStringLiteral("/api/downloads")),
         QJsonDocument(body).toJson(QJsonDocument::Compact)
     );
 
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, playlistBatch]() {
         const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
         const QByteArray payload = reply->readAll();
         if (reply->error() != QNetworkReply::NoError) {
@@ -1747,6 +1754,24 @@ void NovaApiClient::createMediaDownload(
         const QJsonDocument document = QJsonDocument::fromJson(payload);
         if (!document.isObject()) {
             emit requestFailed(QStringLiteral("Unexpected media download response."));
+            return;
+        }
+
+        if (playlistBatch) {
+            const QJsonObject result = document.object();
+            const int accepted = result.value(QStringLiteral("accepted")).toInt();
+            const int failed = result.value(QStringLiteral("failed")).toInt();
+            QStringList failureMessages;
+            const QJsonArray failures = result.value(QStringLiteral("failures")).toArray();
+            for (qsizetype index = 0; index < failures.size() && index < 3; ++index) {
+                const QJsonObject failure = failures.at(index).toObject();
+                const QString title = failure.value(QStringLiteral("title")).toString();
+                const QString error = failure.value(QStringLiteral("error")).toString();
+                failureMessages.append(title.isEmpty() ? error : title + QStringLiteral(": ") + error);
+            }
+            emit mediaPlaylistDownloadsCreated(accepted, failed, failureMessages.join(QLatin1Char('\n')));
+            refreshDownloads();
+            refreshQueue();
             return;
         }
 

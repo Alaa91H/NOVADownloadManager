@@ -4,6 +4,8 @@
 
 **Scope:** This report audits the repository as it existed at `v2.4.25-alpha` / commit `954644e`. It is the source-of-truth baseline for an Android implementation that reuses NOVA’s Rust download semantics without creating a second engine.
 
+> **Historical snapshot:** This audit predates the Qt desktop migration, Android storage publication, and native progressive/HLS/DASH media task work. Its statements about the current desktop host and Android completion state are not current capability claims; use [the Android feature parity matrix](feature-parity.md) and [the native media capability document](media.md) for current source scope. Device/ABI acceptance must still be verified separately.
+
 ## Executive decision
 
 The desktop Rust package `src-tauri` remains **not suitable for direct Android embedding**. It still combines portable download logic with the Tauri shell, an Axum loopback daemon, desktop resource discovery, process control, native-host integration, and desktop credential-store assumptions. Its crate types alone do not make it an Android boundary.

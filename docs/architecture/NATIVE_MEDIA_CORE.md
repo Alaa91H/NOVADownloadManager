@@ -2,7 +2,7 @@
 
 ## Status
 
-Implementation branch: `feature/native-media-core`.
+Implementation is integrated in the native Rust runtime and shared media crates.
 
 The media subsystem is owned by the NOVA Rust core. The target runtime uses NOVA-owned extraction, manifest parsing, transfer planning, live refresh, decryption, selection and staging contracts.
 
@@ -115,11 +115,12 @@ request URL + authorized headers/cookies
 - native throttling-parameter transform discovery and execution for verified player transform families, including named/indexed helpers, object-member aliases, helper-array aliases, top-level comma pipelines, rotate/drop/swap variants and splice-based swaps;
 - bounded player-transform plan cache with fail-closed invalidation; unknown helper aliases, compound returns and unverified transform semantics are rejected rather than partially executed;
 - native direct media transfer execution;
-- end-to-end HLS VOD task execution with master-variant selection, segment progress, verification and atomic assembly;
-- end-to-end live HLS recording with sequence cursors, pause/resume checkpoints and committed-part recovery;
-- end-to-end static DASH single-representation task execution with native staging and atomic assembly;
-- dynamic DASH recording with incremental timeline cursors, pause/resume checkpoints and committed-part recovery;
+- end-to-end HLS VOD and live recording with selected master variants, alternate audio renditions, per-track sequence cursors, pause/resume checkpoints, committed-part recovery and native audio/video muxing;
+- end-to-end static and dynamic DASH execution with selected audio/video representations, same-period pairing, per-track timeline cursors, pause/resume checkpoints and native muxing when the input codecs and containers are supported;
 - native manifest tasks integrated with the shared task lifecycle, cancellation generation, queue accounting and persisted snapshots;
+- HLS and DASH quality caps are applied to the selected video variant/representation before segment requests begin;
+- manifest video tasks choose a stable output container from the declared stream container or protocol default, and validate any required single-track remux against the actual parsed container/codecs before staging media segments;
+- manifest audio-only tasks default to M4A before task naming/path creation, and validate required conversion against the selected manifest rendition before staging;
 - native separate audio/video task execution with parallel track staging, per-track progress and durable completed-track checkpoints;
 - native progressive MP4 multi-track muxing in `nova-media-core`, preserving source codec/sample metadata and interleaving video/audio by decode time without transcoding;
 - 1080p/1440p/2160p quality selection can choose compatible MP4 video/audio tracks for the in-process native muxer;
@@ -139,7 +140,7 @@ request URL + authorized headers/cookies
 - browser-extension media probe, stream resolve, media add and unified analysis routes are backed by NOVA Media Engine only;
 - browser-extension capability negotiation derives HLS/DASH/subtitle/audio readiness from native core capabilities rather than FFmpeg availability;
 - the native host routes media probes to NOVA Media Engine instead of the compatibility bridge;
-- Android links `nova-media-core` through `nova-mobile-ffi`, exposes a typed media descriptor API and a JNI projection consumed by `NovaNativeCore`;
+- Android links `nova-media-core` through `nova-mobile-ffi`, exposes typed media descriptors and native progressive, finite-HLS and static single-period DASH task paths with local codec conversion;
 - Android media descriptor projection excludes transport headers and keeps the engine identity `nova-media-engine`;
 - native Netscape cookie-file loading with bounded file size and URL-scoped domain, path, secure and expiry filtering;
 - native Firefox `cookies.sqlite` import with profile discovery, read-only SQLite access and URL-scoped domain/path/secure/expiry filtering;
@@ -161,11 +162,11 @@ request URL + authorized headers/cookies
 Still isolated behind typed interfaces:
 
 - newly observed throttling/challenge transform families that fall outside the verified native parser subset;
-- native WebM/Matroska multi-track muxing and the remaining embedding/remux cases still handled by the temporary host post-processing adapter;
-- HLS/DASH manifests that require composing separate audio/video representations into one output;
+- DASH presentations containing multiple periods, which require period-aware timeline assembly;
+- HLS/DASH track pairs whose source containers or codecs are not supported by the linked native muxer;
 - subtitle/thumbnail/metadata embedding into the final container;
 - chapter splitting and time-based partial-section extraction;
-- Android app-level media-task execution and codec UI; the codec crate is linked through the mobile FFI dependency, but no Android task API or end-to-end transfer/publish path is exposed yet;
+- Android media paths remain unverified on target devices and ABIs; live recording, playlist task orchestration and torrent media intake remain deferred, while public-storage publication is implemented in source and awaits target acceptance;
 - advanced live crash recovery beyond the persisted cursor/committed-part checkpoint implemented by the task path;
 - Chromium-family browser-cookie import (Chrome/Edge) pending native OS credential decryption; Firefox import is native;
 - additional site adapters;
@@ -175,7 +176,7 @@ Unknown transforms and unsupported protected-media modes fail closed. They are n
 
 ### Post-processing boundary
 
-Compatible MP4 video/audio pairs are muxed directly by `nova-media-core`. Other local mux and conversion work runs through `nova-media-processing-core` only when the selected codec/container pair is supported by that binary. Subtitle embedding currently accepts supported SRT/WebVTT sidecars and preserves media packets; it does not promise embedded-subtitle stream copying, styled ASS rendering, chapters, or thumbnail embedding. No media task falls back to an external executable. Android currently exposes media resolution only; media transfer, processing, and public-storage publication still need an Android task API and acceptance coverage.
+Compatible MP4 video/audio pairs are muxed by NOVA's in-process Rust media cores. Other local mux and conversion work runs through `nova-media-processing-core` only when the selected codec/container pair is supported by that binary. Subtitle embedding currently accepts supported SRT/WebVTT sidecars and preserves media packets; it does not promise embedded-subtitle stream copying, styled ASS rendering, chapters, or thumbnail embedding. No media task falls back to an external executable. Android media transfers and local conversion are implemented in source for the documented subset, with cross-target ABI and device acceptance still pending.
 
 ## Post-removal native acceptance matrix
 

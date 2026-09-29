@@ -43,7 +43,8 @@ public:
         Crc32Role,
         ResumableRole,
         DateAddedRole,
-        ErrorMessageRole
+        ErrorMessageRole,
+        EngineStatusRole
     };
     Q_ENUM(Role)
 
@@ -97,6 +98,7 @@ private:
         int elapsedSeconds{0};
         QString savePath;
         QString engine;
+        QString engineStatus;
         QString fileType;
         QString category;
         QString queueId;

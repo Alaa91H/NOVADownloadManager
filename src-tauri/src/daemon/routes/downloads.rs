@@ -6,19 +6,22 @@ use axum::response::{
 };
 use axum::routing::{delete, get, post};
 use axum::Router;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
 use std::time::Duration;
+use serde::Deserialize;
 
 use crate::daemon::curl::{
-    create_curl_task as direct_create, delete_task, list_all_tasks, pause_task, redownload_task,
+    create_curl_task as direct_create, delete_task, finish_live_media_task, list_all_tasks, pause_task, redownload_task,
     resume_task, update_task_metadata,
 };
 use crate::daemon::direct::DirectUrl;
 use crate::daemon::engine::mirror::{MirrorManager, MirrorSource};
 use crate::daemon::engine::priority_queue::{DownloadPriority, QueueEntry};
 use crate::daemon::engine::rules::RuleAction;
-use crate::daemon::native_media::create_native_media_task;
+use crate::daemon::native_media::{
+    create_native_media_task, resolve_native_media_playlist, MAX_NATIVE_MEDIA_PLAYLIST_ITEMS,
+};
 use crate::daemon::state::SharedState;
 use crate::daemon::telegram::telegram_notify;
 use crate::daemon::torrent_task::{analyze_magnet, create_torrent_task, CreateTorrentBody};
@@ -32,6 +35,23 @@ use super::extension::{
     extension_candidate_to_download_body, legacy_v1_body_to_download_body, queue_capture_review,
 };
 use super::probes::probe_url_with_options;
+
+const NATIVE_MEDIA_PLAYLIST_RESOLUTION_CONCURRENCY: usize = 4;
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateNativeMediaPlaylistBody {
+    url: String,
+    #[serde(rename = "savePath")]
+    save_path: Option<String>,
+    #[serde(rename = "startImmediately")]
+    start_immediately: Option<bool>,
+    #[serde(rename = "queueId")]
+    queue_id: Option<String>,
+    connections: Option<u32>,
+    #[serde(rename = "mediaOptions")]
+    media_options: MediaDownloadOptions,
+}
 
 pub async fn handle_health(State(state): State<SharedState>) -> Json<serde_json::Value> {
     // Offload the (potentially subprocess-spawning) capability probe to the
@@ -522,6 +542,291 @@ pub async fn handle_create_download(
     }
 }
 
+pub async fn handle_create_native_media_playlist(
+    State(state): State<SharedState>,
+    Json(body): Json<CreateNativeMediaPlaylistBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let playlist_url = body.url.trim().to_owned();
+    if playlist_url.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "Missing playlist URL"})),
+        ));
+    }
+    if let Err(error) = crate::daemon::utils::is_safe_target_url(&playlist_url) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": error})),
+        ));
+    }
+    if body.media_options.playlist != Some(true) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "Playlist mode must be enabled"})),
+        ));
+    }
+
+    let save_path = body
+        .save_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+        .ok_or_else(|| {
+            (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(serde_json::json!({
+                    "error": "Choose a destination directory for playlist downloads"
+                })),
+            )
+        })?;
+    let mut save_directory = save_path.to_owned();
+    if !save_directory.ends_with('/') && !save_directory.ends_with('\\') {
+        save_directory.push(std::path::MAIN_SEPARATOR);
+    }
+
+    let selected_indices = parse_native_media_playlist_selection(
+        body.media_options.playlist_items.as_deref(),
+    )
+    .map_err(|error| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": error})),
+        )
+    })?;
+
+    let playlist_request = CreateDownloadBody {
+        url: Some(playlist_url.clone()),
+        name: None,
+        file_type: None,
+        size_bytes: None,
+        category: None,
+        queue_id: body.queue_id.clone(),
+        connections: body.connections,
+        resumable: None,
+        save_path: Some(save_directory.clone()),
+        description: None,
+        referer: None,
+        start_immediately: Some(false),
+        direct_options: None,
+        media_options: Some(body.media_options.clone()),
+    };
+    let playlist = tokio::task::spawn_blocking(move || {
+        resolve_native_media_playlist(&playlist_request).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": format!("Native playlist worker failed: {error}")})),
+        )
+    })?
+    .map_err(|error| {
+        (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(serde_json::json!({"error": error})),
+        )
+    })?;
+
+    if playlist.truncated && selected_indices.is_none() {
+        return Err((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(serde_json::json!({
+                "error": "This playlist exceeds the native listing limit. Select specific listed items before downloading."
+            })),
+        ));
+    }
+
+    let mut selected_entries = Vec::new();
+    let mut found_indices = HashSet::new();
+    for entry in playlist.entries {
+        let selected = selected_indices
+            .as_ref()
+            .is_none_or(|indices| indices.contains(&entry.index));
+        if selected {
+            found_indices.insert(entry.index);
+            selected_entries.push(entry);
+        }
+    }
+    if let Some(indices) = &selected_indices {
+        let missing = indices.difference(&found_indices).copied().collect::<Vec<_>>();
+        if !missing.is_empty() {
+            return Err((
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(serde_json::json!({
+                    "error": format!("Playlist item index is unavailable: {}", missing.iter().map(u64::to_string).collect::<Vec<_>>().join(", "))
+                })),
+            ));
+        }
+    }
+    if selected_entries.is_empty() {
+        return Err((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(serde_json::json!({"error": "No playlist items were selected"})),
+        ));
+    }
+    if selected_entries.len() > MAX_NATIVE_MEDIA_PLAYLIST_ITEMS {
+        return Err((
+            StatusCode::PAYLOAD_TOO_LARGE,
+            Json(serde_json::json!({
+                "error": format!("A native playlist batch can contain at most {MAX_NATIVE_MEDIA_PLAYLIST_ITEMS} items")
+            })),
+        ));
+    }
+
+    let mut results = Vec::with_capacity(selected_entries.len());
+    let mut pending = tokio::task::JoinSet::new();
+    let output_template = body
+        .media_options
+        .output_template
+        .as_deref()
+        .map(str::trim)
+        .filter(|template| !template.is_empty())
+        .unwrap_or("%(title)s.%(ext)s")
+        .to_owned();
+    let media_mode = body
+        .media_options
+        .mode
+        .as_deref()
+        .unwrap_or("video")
+        .to_ascii_lowercase();
+    let start_immediately = body.start_immediately.unwrap_or(true);
+    let queue_id = body.queue_id.clone().unwrap_or_else(|| "main".to_owned());
+
+    for entry in selected_entries {
+        while pending.len() >= NATIVE_MEDIA_PLAYLIST_RESOLUTION_CONCURRENCY {
+            if let Some(result) = pending.join_next().await {
+                results.push(result.unwrap_or_else(|error| {
+                    (0, String::new(), Err(format!("Playlist task worker failed: {error}")))
+                }));
+            }
+        }
+
+        let index = entry.index;
+        let title = entry.title.clone();
+        let url = entry.url;
+        let entry_save_path = save_directory.clone();
+        let entry_queue_id = queue_id.clone();
+        let mut media_options = body.media_options.clone();
+        media_options.playlist_items = Some(index.to_string());
+        if !output_template.contains("%(playlist_index)s") {
+            media_options.output_template = Some(format!("%(playlist_index)s - {output_template}"));
+        }
+        let state = state.clone();
+        let referer = playlist.webpage_url.clone();
+        let connections = body.connections;
+
+        pending.spawn(async move {
+            let result: Result<Task, String> = async {
+                let file_type = if media_mode == "audio" { "audio" } else { "video" };
+                let mut item_body = CreateDownloadBody {
+                    url: Some(url.clone()),
+                    name: Some(title.clone()),
+                    file_type: Some(file_type.to_owned()),
+                    size_bytes: None,
+                    category: Some(file_type.to_owned()),
+                    queue_id: Some(entry_queue_id),
+                    connections,
+                    resumable: Some(true),
+                    save_path: Some(entry_save_path),
+                    description: Some(format!("Native media playlist item {index}")),
+                    referer: Some(referer),
+                    start_immediately: Some(false),
+                    direct_options: None,
+                    media_options: Some(media_options),
+                };
+
+                let (priority, mirrors, rate_limit) =
+                    apply_download_rules(&state, &mut item_body, &url)?;
+                let extractor = state
+                    .extractor_registry
+                    .validate(&item_body)
+                    .map_err(|error| error.to_string())?;
+                if extractor.id() != "nova-media-engine" {
+                    return Err("Playlist item did not resolve to the native media engine".to_owned());
+                }
+                let task = create_native_media_task(&state, &item_body)
+                    .await
+                    .map_err(|error| error.to_string())?;
+                register_task_with_engine(&state, &task, priority, mirrors, rate_limit);
+                if start_immediately {
+                    crate::daemon::native_media::start_native_media_process(&state, &task.id);
+                }
+                Ok(task)
+            }
+            .await;
+            (index, title, result)
+        });
+    }
+
+    while let Some(result) = pending.join_next().await {
+        results.push(result.unwrap_or_else(|error| {
+            (0, String::new(), Err(format!("Playlist task worker failed: {error}")))
+        }));
+    }
+    results.sort_by_key(|(index, _, _)| *index);
+
+    let mut created = Vec::new();
+    let mut failed = Vec::new();
+    for (index, title, result) in results {
+        match result {
+            Ok(task) => created.push(serde_json::json!({
+                "index": index,
+                "id": task.id,
+                "name": task.name,
+                "status": task.status,
+            })),
+            Err(error) => failed.push(serde_json::json!({
+                "index": index,
+                "title": title,
+                "error": error,
+            })),
+        }
+    }
+
+    telegram_notify(
+        &state,
+        &format!(
+            "Native media playlist added: {} created, {} failed",
+            created.len(),
+            failed.len()
+        ),
+    )
+    .await;
+    Ok(Json(serde_json::json!({
+        "ok": failed.is_empty(),
+        "total": created.len() + failed.len(),
+        "accepted": created.len(),
+        "failed": failed.len(),
+        "tasks": created,
+        "failures": failed,
+    })))
+}
+
+fn parse_native_media_playlist_selection(
+    raw: Option<&str>,
+) -> Result<Option<HashSet<u64>>, String> {
+    let Some(raw) = raw.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+    let mut indices = HashSet::new();
+    for value in raw.split(',').map(str::trim) {
+        let index = value
+            .parse::<u64>()
+            .ok()
+            .filter(|index| *index > 0)
+            .ok_or_else(|| "Playlist item indexes must be positive integers".to_owned())?;
+        if !indices.insert(index) {
+            return Err(format!("Playlist item index {index} was selected more than once"));
+        }
+        if indices.len() > MAX_NATIVE_MEDIA_PLAYLIST_ITEMS {
+            return Err(format!(
+                "A native playlist batch can contain at most {MAX_NATIVE_MEDIA_PLAYLIST_ITEMS} items"
+            ));
+        }
+    }
+    Ok(Some(indices))
+}
+
 pub async fn handle_pause_task(
     State(state): State<SharedState>,
     Path(id): Path<String>,
@@ -529,6 +834,16 @@ pub async fn handle_pause_task(
     pause_task(&state, &id).await.map(Json).map_err(|e| {
         log::error!("Pause task failed: {e}");
         daemon_error(e)
+    })
+}
+
+pub async fn handle_finish_live_media_task(
+    State(state): State<SharedState>,
+    Path(id): Path<String>,
+) -> Result<Json<Task>, (StatusCode, Json<serde_json::Value>)> {
+    finish_live_media_task(&state, &id).map(Json).map_err(|error| {
+        log::error!("Finish live media recording failed: {error}");
+        daemon_error(error)
     })
 }
 
@@ -1139,9 +1454,14 @@ pub fn register_routes(router: Router<SharedState>) -> Router<SharedState> {
             get(handle_list_downloads).post(handle_create_download),
         )
         .route("/api/media/download", post(handle_create_media_download))
+        .route(
+            "/api/media/playlist/download",
+            post(handle_create_native_media_playlist),
+        )
         .route("/api/downloads/events", get(handle_download_events))
         .route("/api/downloads/{id}/pause", post(handle_pause_task))
         .route("/api/downloads/{id}/resume", post(handle_resume_task))
+        .route("/api/downloads/{id}/finish", post(handle_finish_live_media_task))
         .route(
             "/api/downloads/{id}/redownload",
             post(handle_redownload_task),
@@ -1157,8 +1477,12 @@ pub fn register_routes(router: Router<SharedState>) -> Router<SharedState> {
 
 #[cfg(test)]
 mod tests {
-    use super::{has_recognizable_extension, supported_direct_url, task_event_fingerprint};
+    use super::{
+        has_recognizable_extension, parse_native_media_playlist_selection, supported_direct_url,
+        task_event_fingerprint,
+    };
     use crate::daemon::types::{Segment, Task};
+    use std::collections::HashSet;
 
     fn sample_task() -> Task {
         Task {
@@ -1287,5 +1611,26 @@ mod tests {
                 "expected {name:?} to NOT be recognized as a direct file link"
             );
         }
+    }
+
+    #[test]
+    fn native_media_playlist_selection_accepts_all_or_unique_one_based_indexes() {
+        assert!(parse_native_media_playlist_selection(None)
+            .expect("all items")
+            .is_none());
+        assert!(parse_native_media_playlist_selection(Some("  "))
+            .expect("all items for empty selection")
+            .is_none());
+        let selected = parse_native_media_playlist_selection(Some("3, 1,7"))
+            .expect("selected indexes")
+            .expect("explicit selection");
+        assert_eq!(selected, HashSet::from([1, 3, 7]));
+    }
+
+    #[test]
+    fn native_media_playlist_selection_rejects_invalid_or_duplicate_indexes() {
+        assert!(parse_native_media_playlist_selection(Some("0")).is_err());
+        assert!(parse_native_media_playlist_selection(Some("1,broken")).is_err());
+        assert!(parse_native_media_playlist_selection(Some("2,2")).is_err());
     }
 }

@@ -312,7 +312,7 @@
           ]
         }
       ],
-      "blocker": "Batch expansion and advanced direct options are implemented, but queue assignment depends on the missing real /api/queues catalog contract tracked by T02; fake/static coverage is not full integration."
+      "blocker": "Batch expansion and advanced direct options are implemented, and the daemon-owned /api/queues contract is present. Keep partial until batch queue assignment is accepted against the real daemon and the current CI candidate."
     },
     {
       "id": "media",
@@ -393,11 +393,15 @@
           "allOf": [
             "NATIVE_MEDIA_OPTION_KEYS",
             "validate_native_options",
-            "create_native_media_task"
+            "create_native_media_task",
+            "select_hls_variant",
+            "best_dash_track_indices",
+            "validate_manifest_conversion_if_requested",
+            "mux_manifest_tracks"
           ]
         }
       ],
-      "blocker": "Qt media probing/options and the first-party native task path exist, but end-to-end extraction, stream recovery and native container-processing acceptance required by T06-T08 is not yet complete on the release candidate."
+      "blocker": "Qt media probing and playlist batches connect to the Rust native task path. HLS/DASH quality selection, format-aware staging, supported separate-track muxing, and local codec conversion are implemented for the advertised subset. Keep partial until current Rust/Qt CI and packaged desktop media recovery acceptance pass; multi-period DASH and unsupported codec/container combinations remain explicitly unsupported."
     },
     {
       "id": "link-grabber",
@@ -1083,7 +1087,7 @@
   ],
   "releaseReplacementReady": false,
   "releaseReplacementBlockers": [
-    "All parity capabilities must be covered before native UI can replace the legacy UI.",
+    "All parity capabilities must be covered before production release.",
     "Signed automatic updater must be production-configured.",
     "Six-platform CI and packaged browser-capture E2E must pass.",
     "Legacy user settings migration must be validated."

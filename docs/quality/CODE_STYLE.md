@@ -4,7 +4,7 @@ This document defines the coding conventions for the NOVA Download Manager proje
 
 ---
 
-## TypeScript / React
+## TypeScript / React (browser extension only)
 
 ### Naming Conventions
 | Entity | Convention | Example |
@@ -74,7 +74,7 @@ The ESLint rule `@typescript-eslint/no-explicit-any` is set to **error**. Use:
 ## CSS
 
 ### Variables
-All design tokens live in `src/styles/tokens.css`. **Never** hardcode color values in component styles — always reference a token.
+Browser-extension design tokens live in `browser-extension/src/ui/styles/theme.css`. **Never** hardcode color values in component styles — always reference a token.
 
 ### Specificity
 - Keep specificity low: prefer single-class selectors.
@@ -85,6 +85,12 @@ All design tokens live in `src/styles/tokens.css`. **Never** hardcode color valu
 - Use `contain: layout style` on high-volume list items (table rows, download cards).
 
 ---
+
+## Native desktop and Rust
+
+The desktop application uses Qt/C++20 and QML. Keep task lifecycle and network operations in the Rust runtime; the Qt API client owns daemon communication and QML presents the resulting state. Follow the owning module's existing abstractions and keep capability checks at the API/UI boundary.
+
+The shared download, media, torrent, and mobile engines are Rust crates. Keep their public contracts platform-neutral, avoid UI dependencies, and use the crate's existing error and test conventions.
 
 ## Commit Messages
 
@@ -110,15 +116,14 @@ chore(deps): bump react to 19.2.7
 
 ---
 
-## Pull Request Checklist
+## Change Checklist
 
-Before opening a PR, verify:
+Run the checks for the affected package after implementation is complete:
 
-- [ ] `pnpm run lint` passes (TypeScript type-check)
-- [ ] `pnpm run lint:eslint` passes with zero warnings
-- [ ] `pnpm run format:check` passes
-- [ ] `pnpm test` passes
+- [ ] Qt desktop: native:check, native:build and native:test
+- [ ] Rust runtime/core: runtime:check and runtime:test, plus the owning crate tests
+- [ ] Browser extension: the scripts declared by `browser-extension/package.json`
 - [ ] New features include unit tests
-- [ ] No `console.log` left in production code
+- [ ] No diagnostic logging left in production paths
 - [ ] No hardcoded secrets or credentials
 - [ ] `CHANGELOG.md` updated if this is a user-visible change

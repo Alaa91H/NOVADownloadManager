@@ -178,6 +178,9 @@ pub async fn pause_task(state: &SharedState, id: &str) -> Result<Task, String> {
     {
         let mut jobs = lock_or_err!(state.native_media_jobs);
         if let Some(job) = jobs.get_mut(id) {
+            if job.finish_requested.load(Ordering::Acquire) {
+                return Err("A live media recording is already finalizing and cannot be paused.".to_owned());
+            }
             let current = TaskState::from_status(&job.task.status)
                 .ok_or_else(|| format!("Task {id} has unknown state '{}'", job.task.status))?;
             let next = if current.is_active() {
@@ -240,6 +243,58 @@ pub async fn pause_task(state: &SharedState, id: &str) -> Result<Task, String> {
         .get(id)
         .cloned()
         .ok_or_else(|| "Task not found".to_owned())
+}
+
+pub fn finish_live_media_task(state: &SharedState, id: &str) -> Result<Task, String> {
+    let mut should_start = false;
+    let task = {
+        let mut jobs = lock_or_err!(state.native_media_jobs);
+        let job = jobs
+            .get_mut(id)
+            .ok_or_else(|| "This task is not a native media recording".to_owned())?;
+        if !matches!(job.protocol.as_str(), "hls" | "dash") || !job.live_recording {
+            return Err("This task is not an active HLS or DASH live recording".to_owned());
+        }
+        if job.finish_requested.load(Ordering::Acquire) {
+            return Ok(job.task.clone());
+        }
+
+        match TaskState::from_status(&job.task.status) {
+            Some(TaskState::Paused) => {
+                transition_task_state(
+                    &mut job.task,
+                    TaskState::Queued,
+                    "live-recording-finishing",
+                )?;
+                should_start = true;
+            }
+            Some(TaskState::Queued) => should_start = true,
+            Some(TaskState::Preparing | TaskState::Probing | TaskState::Downloading) => {
+                job.task.engine_status = Some("live-recording-finishing".to_owned());
+            }
+            Some(_) => {
+                return Err(format!(
+                    "Cannot finish live recording while task is '{}'",
+                    job.task.status
+                ));
+            }
+            None => {
+                return Err(format!(
+                    "Cannot finish live recording with unknown task state '{}'",
+                    job.task.status
+                ));
+            }
+        }
+        job.finish_requested.store(true, Ordering::Release);
+        job.task.clone()
+    };
+
+    lock_or_err!(state.task_snapshot).insert(id.to_owned(), task.clone());
+    state.mark_dirty();
+    if should_start {
+        crate::daemon::native_media::start_native_media_process(state, id);
+    }
+    Ok(task)
 }
 
 pub async fn resume_task(state: &SharedState, id: &str) -> Result<Task, String> {
@@ -632,6 +687,8 @@ pub async fn redownload_task(state: &SharedState, id: &str) -> Result<Task, Stri
                     TaskState::from_status(&job.task.status).is_some_and(TaskState::is_active);
                 restart_task_state(&mut job.task, "redownload-requested")?;
                 job.cancel_token.store(true, Ordering::Release);
+                job.finish_requested.store(false, Ordering::Release);
+                job.live_recording = false;
                 job.run_generation.fetch_add(1, Ordering::AcqRel);
                 let path = std::path::PathBuf::from(&job.task.save_path);
                 job.task.downloaded_bytes = 0;

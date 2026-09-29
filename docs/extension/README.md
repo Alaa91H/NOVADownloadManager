@@ -9,8 +9,8 @@ The extension is a companion, not a bypass mechanism. It does not circumvent DRM
 | Capability | What the extension does | What NOVA Desktop decides |
 |---|---|---|
 | Direct files | Detects links, browser downloads, and safe network evidence | Validates protocol and starts the libcurl task |
-| HLS and DASH | Detects manifests and presents available candidates | Resolves and downloads supported media through yt-dlp/FFmpeg |
-| YouTube and supported media pages | Requests a yt-dlp format catalog, presents the available resolutions and reported sizes in descending quality order, and sends the explicit format selection | Resolves the stable page URL, merges audio with a selected video-only format through FFmpeg, and owns the managed download task |
+| HLS and DASH | Detects manifests and presents available candidates | Resolves and downloads supported streams through NOVA's native media and stream cores |
+| YouTube and supported media pages | Requests a native format catalog, presents available resolutions and reported sizes, and sends the selected format ID | Resolves the stable page URL, stages selected tracks, and uses NOVA's linked in-process mux/codec core where required |
 | Browser download takeover | Cancels an eligible browser download early and places a durable handoff job in the outbox | Accepts the candidate when the daemon is reachable; retries are safe and idempotent |
 | Recovery after a policy decline | Restarts the browser download once and bypasses its own restart event | Does not create a NOVA task |
 | Pairing and events | Performs trusted-local pairing and listens for daemon events | Issues and validates scoped loopback bearer tokens |
@@ -19,9 +19,9 @@ The extension is a companion, not a bypass mechanism. It does not circumvent DRM
 
 The extension supports direct-link capture, context-menu capture, deep DOM scanning, media-element inspection, OpenGraph and JSON-LD discovery, HLS/DASH detection, and filtered candidate presentation. Its user-approved aggressive profile expands discovery through page-context `fetch`, XHR, `MediaSource`, WebSocket, EventSource, object-URL, and network-observer evidence. Platform-specific adapters improve extraction confidence for supported sites; they do not guarantee that every service or every protected stream can be downloaded.
 
-The floating video control is draggable, persists its position as a relative viewport location, and returns to its default upper-right placement on double click. On supported video pages, it obtains the desktop yt-dlp catalog and shows available resolutions, codecs, frame rates, and sizes where the platform reports them. Selecting a format sends the stable page URL plus its `formatId` to NOVA; it never turns a short-lived CDN stream URL into a browser download. The extension stores queued handoff requests in its outbox so a browser-captured item can be retried after the desktop application becomes reachable.
+The floating video control is draggable, persists its position as a relative viewport location, and returns to its default upper-right placement on double click. On supported video pages, it obtains NOVA's native format catalog and shows available resolutions, codecs, frame rates, and sizes where the platform reports them. Selecting a format sends the stable page URL plus its `formatId` to NOVA; it never turns a short-lived CDN stream URL into a browser download. The extension stores queued handoff requests in its outbox so a browser-captured item can be retried after the desktop application becomes reachable.
 
-High-quality YouTube formats are frequently video-only. NOVA automatically requests the selected video format together with the best compatible audio and relies on FFmpeg to merge the result. The extension does not bypass DRM, CAPTCHA, account access, or other platform controls. If YouTube requires an authenticated browser session, NOVA reports the requirement rather than claiming that the download started.
+High-quality YouTube formats are frequently video-only. NOVA pairs the selected video with compatible audio and processes supported tracks through its linked native media core. The extension does not bypass DRM, CAPTCHA, account access, or other platform controls. If YouTube requires an authenticated browser session, NOVA reports the requirement rather than claiming that the download started.
 
 ## Local bridge and pairing
 

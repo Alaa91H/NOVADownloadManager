@@ -425,6 +425,11 @@ Item {
             root.errorText = ""
         }
 
+        function onMediaPlaylistDownloadsCreated(accepted, failed, failureMessage) {
+            root.statusText = root.t("media.created") + " · " + accepted + " / " + (accepted + failed)
+            root.errorText = failureMessage || ""
+        }
+
         function onRequestFailed(message) {
             if (root.visible) {
                 root.errorText = message

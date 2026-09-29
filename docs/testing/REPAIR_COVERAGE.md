@@ -2,6 +2,7 @@
 
 > This file is the red→green record for each item in [REPAIR_PLAN.md](../../REPAIR_PLAN.md).
 > Last updated: 2026-08-01 — Stages 0–7 completed.
+> Historical snapshot from before the Qt desktop migration; listed React/Vite checks are not current repository validation evidence.
 
 ## Baseline status (Stage 0.1 — 2026-08-01)
 

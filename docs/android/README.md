@@ -1,6 +1,6 @@
 # NOVA Android Documentation
 
-NOVA Android is being implemented as a native Kotlin/Jetpack Compose client that incrementally reuses portable Rust contracts and transfer semantics. The desktop Tauri/Axum daemon is not embedded in Android, and Kotlin must not become a second download engine.
+NOVA Android is being implemented as a native Kotlin/Jetpack Compose client that incrementally reuses portable Rust contracts and transfer semantics. The headless Rust/Axum desktop daemon is not embedded in Android, and Kotlin must not become a second download engine.
 
 | Document | Purpose | Current conclusion |
 |---|---|---|
@@ -9,7 +9,7 @@ NOVA Android is being implemented as a native Kotlin/Jetpack Compose client that
 | [Rust bridge contract](rust-bridge.md) | Typed bridge version boundary and expansion rules. | Handshake plus narrow native transfer/control primitives exist; generated high-level UniFFI task bindings remain pending. |
 | [Background execution](background-downloads.md) | UIDT/WorkManager/notification policy and recovery gates. | UIDT on API 34+ and foreground WorkManager fallback are implemented; device validation remains pending. |
 | [Storage design](storage.md) | App-private staging, SAF, MediaStore, capability and privacy rules. | App-private staging/finalization implemented; SAF/MediaStore adapters pending. |
-| [Native media capability](media.md) | Resolver, task execution, codecs, playlists, and torrent status for Android. | Resolution exists; end-to-end media tasks remain deferred. |
+| [Native media capability](media.md) | Resolver, task execution, codecs, playlists, and torrent status for Android. | Progressive, finite-HLS and static single-period DASH task paths are implemented in source; target-runtime acceptance and remaining surfaces are tracked explicitly. |
 | [Testing strategy](testing.md) | Evidence levels and release test matrix. | JVM/APK/ARM64-link checks passed; no device test. |
 | [Feature parity matrix](feature-parity.md) | Desktop-to-Android capability status with evidence rules. | No parity percentage or production download claim. |
 

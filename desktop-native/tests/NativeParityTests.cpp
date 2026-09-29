@@ -78,6 +78,8 @@ void NativeParityTests::largeListRemainsResponsive() {
             i % 4 == 0 ? QString() : QStringLiteral("2026-09-24T13:00:00Z")
         );
         item.insert(QStringLiteral("crc32"), QStringLiteral("%1").arg(i, 8, 16, QLatin1Char('0')));
+        if (i == 0)
+            item.insert(QStringLiteral("engineStatus"), QStringLiteral("live-recording-paused"));
         item.insert(QStringLiteral("resumable"), true);
         item.insert(
             QStringLiteral("dateAdded"),
@@ -101,6 +103,11 @@ void NativeParityTests::largeListRemainsResponsive() {
     QCOMPARE(model.queuedCount(), 0);
     QCOMPARE(model.completedCount(), itemCount - itemCount / 4);
     QCOMPARE(model.failedCount(), 0);
+    QCOMPARE(
+        model.itemById(QStringLiteral("task-000000"))
+            .value(QStringLiteral("engineStatus")).toString(),
+        QStringLiteral("live-recording-paused")
+    );
     QVERIFY2(
         initialLoadMs < 8000,
         qPrintable(QStringLiteral("20k model load took %1 ms").arg(initialLoadMs))
@@ -478,7 +485,6 @@ void NativeParityTests::batchImportCarriesAdvancedOptions() {
 
                 const QByteArray headers = buffer->left(headerEnd);
                 const QByteArray requestLine = headers.left(headers.indexOf("\r\n"));
-
                 if (requestLine.startsWith("GET /api/queues ")) {
                     const QByteArray responseBody =
                         "{\"ok\":true,\"version\":1,\"queues\":["
@@ -628,7 +634,6 @@ void NativeParityTests::batchImportHonorsRuntimeCapabilities() {
 
                 const QByteArray headers = buffer->left(headerEnd);
                 const QByteArray requestLine = headers.left(headers.indexOf("\r\n"));
-
                 if (requestLine.startsWith("GET /api/engines/capabilities ")) {
                     const QByteArray responseBody =
                         "{"
@@ -742,19 +747,22 @@ void NativeParityTests::mediaDownloadCarriesAdvancedOptions() {
     QVERIFY(server.listen(QHostAddress::LocalHost, 0));
 
     QByteArray capturedBody;
+    QByteArray capturedRequestLine;
     connect(&server, &QTcpServer::newConnection, &server, [&]() {
         while (server.hasPendingConnections()) {
             QTcpSocket *socket = server.nextPendingConnection();
             auto *buffer = new QByteArray();
             QObject::connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
             QObject::connect(socket, &QTcpSocket::disconnected, socket, [buffer]() { delete buffer; });
-            QObject::connect(socket, &QTcpSocket::readyRead, socket, [socket, buffer, &capturedBody]() {
+            QObject::connect(socket, &QTcpSocket::readyRead, socket, [socket, buffer, &capturedBody, &capturedRequestLine]() {
                 buffer->append(socket->readAll());
                 const int headerEnd = buffer->indexOf("\r\n\r\n");
                 if (headerEnd < 0) return;
 
                 const QByteArray headers = buffer->left(headerEnd);
                 const QByteArray requestLine = headers.left(headers.indexOf("\r\n"));
+                if (requestLine.startsWith("POST "))
+                    capturedRequestLine = requestLine;
 
                 if (requestLine.startsWith("GET /api/downloads ")) {
                     const QByteArray body = "[]";
@@ -787,7 +795,9 @@ void NativeParityTests::mediaDownloadCarriesAdvancedOptions() {
                 if (buffer->size() < bodyStart + contentLength) return;
 
                 capturedBody = buffer->mid(bodyStart, contentLength);
-                const QByteArray responseBody = "{\"id\":\"media-task-1\"}";
+                const QByteArray responseBody =
+                    "{\"accepted\":2,\"failed\":1,\"failures\":["
+                    "{\"title\":\"Unavailable clip\",\"error\":\"unsupported format\"}]}";
                 socket->write(
                     "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: "
                     + QByteArray::number(responseBody.size()) + "\r\n\r\n" + responseBody
@@ -799,6 +809,7 @@ void NativeParityTests::mediaDownloadCarriesAdvancedOptions() {
 
     NovaApiClient client;
     client.setBaseUrl(QUrl(QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort())));
+    QSignalSpy playlistCreatedSpy(&client, &NovaApiClient::mediaPlaylistDownloadsCreated);
 
     const QVariantMap options{
         {QStringLiteral("mode"), QStringLiteral("video")},
@@ -809,7 +820,7 @@ void NativeParityTests::mediaDownloadCarriesAdvancedOptions() {
         {QStringLiteral("bitrate"), QStringLiteral("320K")},
         {QStringLiteral("outputTemplate"), QStringLiteral("%(title)s.%(ext)s")},
         {QStringLiteral("playlist"), true},
-        {QStringLiteral("playlistItems"), QStringLiteral("1-3,5")},
+        {QStringLiteral("playlistItems"), QStringLiteral("1,3,5")},
         {QStringLiteral("subtitles"), true},
         {QStringLiteral("subtitleLanguages"), QStringLiteral("en,ar")},
         {QStringLiteral("autoSubtitles"), true},
@@ -847,6 +858,11 @@ void NativeParityTests::mediaDownloadCarriesAdvancedOptions() {
     );
 
     QTRY_VERIFY_WITH_TIMEOUT(!capturedBody.isEmpty(), 3000);
+    QTRY_COMPARE_WITH_TIMEOUT(playlistCreatedSpy.count(), 1, 3000);
+    QVERIFY(capturedRequestLine.startsWith("POST /api/media/playlist/download "));
+    QCOMPARE(playlistCreatedSpy.at(0).at(0).toInt(), 2);
+    QCOMPARE(playlistCreatedSpy.at(0).at(1).toInt(), 1);
+    QVERIFY(playlistCreatedSpy.at(0).at(2).toString().contains(QStringLiteral("Unavailable clip")));
     const QJsonObject body = QJsonDocument::fromJson(capturedBody).object();
     QCOMPARE(body.value(QStringLiteral("fileType")).toString(), QStringLiteral("video"));
     QVERIFY(!body.value(QStringLiteral("startImmediately")).toBool());
@@ -1892,6 +1908,22 @@ void NativeParityTests::bulkShortcutActionsRespectTaskLifecycle() {
                 || line.startsWith("DELETE /api/downloads/failed ");
         }
     ));
+
+    requestLines.clear();
+    QSignalSpy actionSpy(&client, &NovaApiClient::taskActionCompleted);
+    client.finishLiveRecording(QStringLiteral("live-task"));
+    QTRY_VERIFY_WITH_TIMEOUT(
+        std::any_of(
+            requestLines.cbegin(),
+            requestLines.cend(),
+            [](const QByteArray &line) {
+                return line.startsWith("POST /api/downloads/live-task/finish ");
+            }
+        ),
+        3000
+    );
+    QTRY_VERIFY_WITH_TIMEOUT(actionSpy.count() >= 1, 3000);
+    QCOMPARE(actionSpy.at(0).at(0).toString(), QStringLiteral("finish"));
 }
 
 QTEST_GUILESS_MAIN(NativeParityTests)

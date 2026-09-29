@@ -1,5 +1,7 @@
 # Signed Updater Readiness — 2026-08-21
 
+> **Historical report:** This document describes the retired Tauri updater design. NOVA's desktop shell has since migrated to Qt; do not use this report as the current updater implementation or release-readiness status.
+
 **Repository:** [`Alaa91H/NOVADownloadManager`](https://github.com/Alaa91H/NOVADownloadManager)  
 **Audited release:** [`v2.4.11-alpha`](https://github.com/Alaa91H/NOVADownloadManager/releases/tag/v2.4.11-alpha)  
 **Tagged CI run:** [32469120673](https://github.com/Alaa91H/NOVADownloadManager/actions/runs/32469120673)  

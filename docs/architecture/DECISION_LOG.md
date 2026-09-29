@@ -24,13 +24,13 @@ The direct download engine uses a Rust binding to `libcurl multi` (the `curl` cr
 
 ---
 
-## ADR-002: Tauri (not Electron) for the desktop shell
+## ADR-002: Tauri (not Electron) for the desktop shell — superseded
 
-**Status:** Accepted  
+**Status:** Superseded by the Qt Native Desktop migration (2026-Q3)  
 **Date:** 2024-Q3
 
 ### Decision
-The desktop application uses Tauri 2 with a WebView-based frontend rather than Electron.
+At the time of this decision, the desktop application used Tauri 2 with a WebView-based frontend. The current desktop application is Qt/QML and connects to the headless Rust daemon through its authenticated local API; the former React/Tauri shell and its build entry points have been removed.
 
 ### Rationale
 - Tauri uses the OS-native WebView, resulting in significantly smaller binary sizes (~5–10 MB vs ~100+ MB for Electron).
@@ -39,7 +39,7 @@ The desktop application uses Tauri 2 with a WebView-based frontend rather than E
 
 ### Alternatives Considered
 - Electron: mature ecosystem but large binary, Node.js overhead, and difficult to integrate with Rust-native engines.
-- Native Win32/Qt/GTK UI: far higher development cost for 35-language, 6-theme, accessible UI.
+- Native Win32/GTK UI: considered too costly for the original frontend scope. Qt was later adopted as the sole desktop interface and the language scope was narrowed to English and Arabic.
 
 ---
 
@@ -49,7 +49,7 @@ The desktop application uses Tauri 2 with a WebView-based frontend rather than E
 **Date:** 2024-Q4
 
 ### Decision
-All engine capabilities (protocol support, FFmpeg availability, yt-dlp presence) are queried at runtime from the daemon and surfaced via `EngineCapabilityContext`. The UI never assumes a feature is available without confirming from the daemon.
+All engine capabilities (linked transport features, native media processing, torrent services and platform integrations) are queried at runtime from the daemon. The desktop UI and browser companion never assume a feature is available without confirming from the daemon.
 
 ### Rationale
 - Users may install NOVA on machines with different system libraries; compile-time flags would not capture this.
@@ -86,12 +86,12 @@ The browser companion targets Manifest V3 for Chrome/Edge and the equivalent Web
 **Date:** 2025-Q1
 
 ### Decision
-All JavaScript packages (desktop frontend, browser extension) share a single `pnpm-workspace.yaml` and one root `pnpm-lock.yaml`.
+Repository JavaScript tooling and the browser extension share the root pnpm workspace and lockfile. The desktop UI is built with CMake/Qt and the Rust runtime is built with Cargo.
 
 ### Rationale
 - Eliminates dependency divergence between packages.
 - Simplifies CI: one install step, one lockfile to audit.
-- `resolvePeersFromWorkspaceRoot: false` is used to allow Vite version mismatches between the desktop (Vite 6) and extension (Vite 8 via WXT).
+- `resolvePeersFromWorkspaceRoot: false` keeps the browser extension's web-tool peers scoped to that package; the Qt desktop has no Vite or React dependencies.
 
 ### Alternatives Considered
 - Separate lockfiles per package: easier to evolve independently but creates audit surface fragmentation and CI complexity.

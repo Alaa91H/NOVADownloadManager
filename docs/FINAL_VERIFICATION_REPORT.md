@@ -1,5 +1,7 @@
 # Final Verification Report — NOVA Download Manager
 
+> **Historical report:** This document records the `2.2.1-alpha` Tauri-era build and verification from 17 August 2026. It is not evidence for the current Qt desktop application, the native media/torrent paths, or later source changes. Use current CI results and the capability documents for present status.
+
 **Built release:** `2.2.1-alpha`
 **Working branch:** `fix/verified-transfer-progress`
 **Verification date:** 17 August 2026

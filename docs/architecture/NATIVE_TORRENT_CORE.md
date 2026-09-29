@@ -2,13 +2,13 @@
 
 ## Goal
 
-NOVA's torrent support is being implemented as an in-process Rust engine rather than a wrapper around an external torrent executable. The engine is split from Tauri and UI code so the same protocol core can be reused by desktop and mobile hosts.
+NOVA's torrent support is an in-process Rust engine rather than a wrapper around an external torrent executable. The protocol core is separate from the Qt desktop presentation and can be reused by compatible hosts.
 
-The implementation lives in `crates/nova-torrent-core` and is developed on `feature/native-torrent-core`.
+The protocol implementation lives in `crates/nova-torrent-core`; the desktop daemon, persistence adapters and task APIs live under `src-tauri/`.
 
 ## Current foundation
 
-The first development stage establishes the protocol and data-integrity boundary required before any swarm networking is enabled:
+The protocol core provides the parsing, peer-wire and integrity contracts used by the running torrent task engine:
 
 - BitTorrent v1 `.torrent` metainfo parsing.
 - Exact SHA-1 info-hash calculation from the original raw `info` dictionary bytes.
@@ -26,7 +26,7 @@ The first development stage establishes the protocol and data-integrity boundary
 - Rarest-first piece scheduling with availability accounting and duplicate in-flight suppression.
 - Deterministic block planning with bounded request sizes.
 
-The host links this crate through `src-tauri/Cargo.toml`. Runtime capability reporting exposes the native foundation but deliberately keeps torrent task execution unavailable until swarm networking and persistence are wired end-to-end.
+The host links this crate through `src-tauri/Cargo.toml`. Runtime capability reporting is derived from the linked engine and task services; native torrent task execution, recovery and seeding are integrated with the daemon and Qt review workflow.
 
 ## Security and correctness boundaries
 
@@ -44,7 +44,7 @@ Torrent metadata and peer traffic are untrusted input. The core therefore applie
 10. BEP 9 metadata is capped at 4 MiB, assembled in 16 KiB pieces, and SHA-1 checked against the magnet BTIH before parsing.
 11. DHT/PEX-discovered addresses are filtered through NOVA's internal-address policy before connection attempts.
 12. DHT fallback is disabled by default when a magnet already supplies trackers, preventing premature info-hash disclosure before the private flag is known.
-13. Engine capabilities fail closed: unfinished durable execution features are advertised as false and `torrentMagnet` routing remains disabled.
+13. Engine capabilities fail closed: unsupported protocol versions and runtime services are not advertised, and magnet routing is exposed only when task creation is available.
 
 ## Planned execution stages
 
@@ -67,9 +67,9 @@ The tracker execution layer is now implemented with:
 - tracker URL/token redaction in diagnostic failure aggregation;
 - local HTTP and UDP transport tests that exercise real sockets.
 
-The torrent engine still remains unavailable for task routing because peer-session transfer, metadata exchange, and durable resume are not complete.
+The tracker layer is used by the daemon's native torrent task lifecycle. Tracker requests retain the DNS-pinning, redirect validation, cancellation and privacy boundaries listed above.
 
-### Stage 3 — Peer session engine — implemented foundation
+### Stage 3 — Peer session engine — implemented and integrated
 
 The peer-session execution layer now includes:
 
@@ -92,9 +92,9 @@ The peer-session execution layer now includes:
 - NOVA peer-id generation;
 - local TCP acceptance tests covering handshake, verified piece transfer, wrong info-hash rejection, and unsolicited data.
 
-`peerTransferExecution` remains false at the daemon capability level because this peer engine is not yet wired to durable torrent task storage/resume. This is intentionally fail-closed.
+The daemon connects this peer engine to verified piece storage, task cancellation, resume checkpoints, bandwidth policy and torrent lifecycle reporting. A peer connection is still not guaranteed: tracker/DHT reachability, NAT, firewall policy and the remote swarm determine whether peers can be reached.
 
-### Stage 4 — Magnet metadata and peer discovery — implemented foundation
+### Stage 4 — Magnet metadata and peer discovery — implemented and integrated
 
 The metadata/discovery layer now includes:
 
@@ -116,9 +116,9 @@ The metadata/discovery layer now includes:
 - private-torrent cleanup that discards DHT/PEX candidate sets once verified metadata declares the torrent private;
 - local TCP/UDP protocol tests for BEP 9 metadata exchange and iterative DHT discovery.
 
-Stage 4 does not yet make torrent tasks routable. DHT server/routing-table persistence, metadata serving, durable torrent storage, resume checkpoints, and complete task lifecycle integration remain intentionally disabled or unadvertised.
+The resolver is connected to torrent task creation. DHT use remains privacy-gated until magnet metadata establishes the torrent's private flag; public DHT peer announcements and unsupported DHT server behavior are not implied by client lookup support.
 
-### Stage 5 — Durable storage and resume — implemented foundation
+### Stage 5 — Durable storage and resume — implemented and integrated
 
 The durable execution layer now includes:
 
@@ -143,11 +143,11 @@ The durable execution layer now includes:
 - cancellation-safe bandwidth pacing that does not leave phantom reserved bandwidth after a paused run;
 - local storage, restart, corruption, generation-race, boundary-piece, policy, and TCP transfer tests.
 
-Stage 5 makes the native transfer/storage pipeline executable, but the public torrent engine remains fail-closed. `available` stays false and `routing.torrentMagnet` stays null until Stage 6 registers torrent jobs, APIs, lifecycle state, and UI surfaces.
+Stages 5 and 6 connect verified transfer and durable storage to the public task lifecycle. Each runtime capability is still reported independently so a missing listener, storage permission, or protocol feature does not appear supported.
 
 ### Stage 6 — Daemon and UI integration — implemented
 
-The native torrent engine is now connected end-to-end through NOVA's daemon and React/Tauri UI:
+The native torrent engine is connected end-to-end through NOVA's Rust daemon and Qt/QML desktop UI:
 
 - `routing.torrentMagnet` routes magnet downloads to `native-torrent`;
 - authenticated daemon APIs analyze magnets, create torrent tasks, expose task details, update file priorities, and control pause/resume/cancel/remove;
@@ -163,7 +163,7 @@ NOVA now accepts both native BitTorrent source forms without delegating executio
 - local `.torrent` metainfo files can be opened from the torrent dialog and are parsed by `nova-torrent-core`;
 - metainfo-file downloads discover peers from the already-trusted local metadata instead of requiring BEP 9 metadata exchange;
 - the desktop bundle registers `.torrent` as `application/x-bittorrent` and registers the `magnet:` URL scheme;
-- Windows/Linux launches are forwarded through the single-instance path, while macOS open events use Tauri's runtime open event;
+- Windows/Linux launches are forwarded through the single-instance path, while macOS file/URL open events enter through the Qt desktop integration;
 - cold-start sources are retained until the frontend is ready, and warm-start sources are emitted to the existing torrent dialog;
 - multiple simultaneous system-open requests are queued and deduplicated so an active dialog is never silently replaced;
 - system-open file reads use a bounded one-time allow-list and raw binary IPC; arbitrary frontend-provided filesystem paths are rejected;

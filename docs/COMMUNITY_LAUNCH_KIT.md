@@ -21,7 +21,7 @@ Hi HN,
 
 I am building **NOVA Download Manager**, an open-source desktop download manager focused on native desktop UX, explicit runtime capabilities, and browser handoff.
 
-The current desktop UI is built with **Qt 6 / QML / C++20**, while the download/runtime layer is implemented in **Rust** and uses **libcurl multi** for direct transfers. Optional media workflows use **yt-dlp + FFmpeg**, and a Manifest V3 browser companion handles supported download handoff from Chrome/Edge/Firefox.
+The current desktop UI is built with **Qt 6 / QML / C++20**, while the download/runtime layer is implemented in **Rust** and uses **libcurl multi** for direct transfers. Supported media workflows use NOVA's native Rust extraction, streaming, and linked in-process codec cores; a Manifest V3 browser companion handles supported download handoff from Chrome/Edge/Firefox.
 
 Some of the areas I have been working on:
 
@@ -59,7 +59,7 @@ Current areas include:
 - segmented transfers when supported by the server;
 - pause/resume and recovery;
 - queues, scheduler, rules and bandwidth controls;
-- optional yt-dlp + FFmpeg media workflows;
+- native media extraction, HLS/DASH staging, playlist batches, and locally linked codec processing for supported formats;
 - Chrome / Edge / Firefox companion integration;
 - Windows, Linux and macOS CI targets;
 - English and Arabic/RTL support;
@@ -89,7 +89,7 @@ Feedback on the architecture and user experience is very welcome.
 
 ### Short description
 
-NOVA is an open-source download manager with a Qt/QML native desktop interface, a Rust transfer runtime, libcurl multi downloads, optional yt-dlp + FFmpeg media workflows, and browser integration for Chrome, Edge and Firefox.
+NOVA is an open-source download manager with a Qt/QML native desktop interface, a Rust transfer and media runtime, libcurl multi downloads, in-process media processing for supported formats, and browser integration for Chrome, Edge and Firefox.
 
 ### Maker first comment
 
@@ -115,7 +115,7 @@ I’m building **NOVA Download Manager** — an open-source native desktop downl
 ⏯ pause/resume  
 🗂 queues + scheduler  
 🌐 Chrome/Edge/Firefox integration  
-🎬 optional yt-dlp + FFmpeg  
+🎬 native media and codec processing for supported formats  
 🌍 English + Arabic/RTL
 
 https://github.com/Alaa91H/NOVADownloadManager
@@ -144,7 +144,7 @@ I have been building **NOVA Download Manager**, an open-source desktop download 
 
 The architecture separates presentation from download execution. The runtime owns transfers, queues, persistence, capability checks and browser handoff, while the desktop layer focuses on native UX and platform integration.
 
-NOVA currently includes libcurl multi based transfers, pause/resume and recovery paths, queue and scheduling tools, optional yt-dlp/FFmpeg workflows, Chrome/Edge/Firefox integration, English/Arabic localization, and cross-platform quality checks.
+NOVA currently includes libcurl multi based transfers, pause/resume and recovery paths, queue and scheduling tools, native media workflows for supported sources and formats, Chrome/Edge/Firefox integration, English/Arabic localization, and cross-platform quality checks.
 
 The project is in active alpha development, and I am opening it up more deliberately to testers and contributors.
 
@@ -167,7 +167,7 @@ If you work in any of these areas, technical feedback and code review are welcom
 
 **NOVA Download Manager is looking for testers and contributors.**
 
-NOVA is an open-source native desktop download manager built with Qt 6/QML + a Rust runtime, with libcurl multi transfers, queues/scheduling, browser integration and optional yt-dlp/FFmpeg workflows.
+NOVA is an open-source native desktop download manager built with Qt 6/QML + a Rust runtime, with libcurl multi transfers, queues/scheduling, browser integration and in-process media handling for supported sources and formats.
 
 I am currently looking for real-world testing on Windows/Linux/macOS and contributors interested in Qt/QML, Rust, browser extensions, packaging, accessibility or documentation.
 

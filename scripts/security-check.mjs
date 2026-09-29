@@ -18,8 +18,8 @@ const ROOT = new URL('../', import.meta.url).pathname.replace(/^\/([A-Z]:)/, '$1
 const IGNORE_DIRS = new Set([
   'node_modules', 'dist', 'target', '.git', 'coverage',
   'browser-extension/node_modules', 'src-tauri/target',
-  // i18n files contain UI label keys like "settings_bot_token" which are not secrets
-  'src/lib/i18n',
+  // Translation dictionaries can contain labels like "settings_bot_token", not credential values.
+  'desktop-native/src/localization',
 ]);
 
 /** @type {Array<{name: string, pattern: RegExp, severity: 'HIGH'|'MEDIUM'|'LOW', ignoreInTests?: boolean}>} */

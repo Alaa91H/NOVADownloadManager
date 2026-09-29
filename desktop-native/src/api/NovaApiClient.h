@@ -135,6 +135,7 @@ public:
     );
     Q_INVOKABLE void pauseDownload(const QString &id);
     Q_INVOKABLE void resumeDownload(const QString &id);
+    Q_INVOKABLE void finishLiveRecording(const QString &id);
     Q_INVOKABLE void redownloadDownload(const QString &id);
     Q_INVOKABLE void deleteDownload(const QString &id);
     Q_INVOKABLE void resumeAllDownloads();
@@ -282,6 +283,7 @@ signals:
     void mediaPlaylistChanged();
     void mediaPlaylistFailed(const QString &message);
     void mediaDownloadCreated(const QString &taskId);
+    void mediaPlaylistDownloadsCreated(int accepted, int failed, const QString &failureMessage);
 
     void directProbeChanged();
     void directProbeFailed(const QString &message);
