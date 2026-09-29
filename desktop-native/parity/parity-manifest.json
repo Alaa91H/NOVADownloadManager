@@ -859,6 +859,7 @@
       "blocker": "Magnet candidates and bounded, SSRF-checked HTTP(S) .torrent links are capability-gated and reviewed in Qt. The torrent dialog exposes local metainfo import, metadata review, per-file priorities, connection limits, seeding policy and an explicit duplicate-info-hash opt-in. Keep partial until the desktop runtime flow and torrent swarm acceptance are validated.",
       "evidence": [
         "src-tauri/src/daemon/routes/extension.rs",
+        "src-tauri/src/daemon/routes/commands.rs",
         "src-tauri/src/daemon/routes/engine.rs",
         "src-tauri/src/daemon/torrent_task.rs",
         "desktop-native/src/api/NovaApiClient.cpp",
@@ -883,7 +884,13 @@
           "allOf": [
             "MagnetLink::parse",
             "analyze_magnet",
-            "fetch_torrent_metainfo_url",
+            "fetch_torrent_metainfo_url"
+          ]
+        },
+        {
+          "file": "src-tauri/src/daemon/routes/commands.rs",
+          "allOf": [
+            "ControlCommand::AddTorrent",
             "create_torrent_task"
           ]
         },

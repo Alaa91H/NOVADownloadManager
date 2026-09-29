@@ -7254,6 +7254,7 @@ mod tests {
         };
         let period_zero = create_period_mp4("period-zero-source.mp4");
         let period_one = create_period_mp4("period-one-source.mp4");
+        let expected_download_bytes = (period_zero.len() + period_one.len()) as u64;
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind multi-period DASH server");
         let address = listener.local_addr().expect("multi-period DASH address");
         let manifest = format!(
@@ -7313,7 +7314,7 @@ mod tests {
         assert_eq!(staged.kind, nova_media_core::MediaTrackKind::Video);
         assert_eq!(
             progress.lock().expect("progress").last().copied(),
-            Some((period_zero.len() + period_one.len()) as u64)
+            Some(expected_download_bytes)
         );
         let output = dir.join("joined.mp4");
         assemble_ordered_parts(&staged.parts, &output).expect("publish joined DASH output");
