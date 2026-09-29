@@ -83,6 +83,7 @@ pub const NATIVE_MEDIA_OPTION_KEYS: &[&str] = &[
 
 const NATIVE_COOKIE_FILE_MAX_BYTES: u64 = 2 * 1024 * 1024;
 pub const MAX_NATIVE_MEDIA_PLAYLIST_ITEMS: usize = 1_000;
+const MAX_NATIVE_DASH_PERIODS: usize = 256;
 
 impl Extractor for NativeMediaExtractor {
     fn id(&self) -> &'static str {
@@ -134,6 +135,7 @@ impl Extractor for NativeMediaExtractor {
                 "hls-vod-task".to_owned(),
                 "hls-live-task".to_owned(),
                 "dash-static-task".to_owned(),
+                "dash-static-multi-period-task".to_owned(),
                 "dash-dynamic-task".to_owned(),
                 "manifest-pause-resume".to_owned(),
                 "parallel-av-staging".to_owned(),
@@ -2376,6 +2378,40 @@ fn dash_manifest_track_container(
     Ok(dash_track_container(adaptation, representation, &plan))
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct DashRepresentationMetadata {
+    kind: DashTrackKind,
+    container: String,
+    video_codec: Option<String>,
+    audio_codec: Option<String>,
+}
+
+fn dash_representation_metadata(
+    manifest: &DashManifest,
+    indices: DashRepresentationIndices,
+) -> Result<DashRepresentationMetadata, NativeMediaTaskError> {
+    let adaptation = manifest
+        .periods
+        .get(indices.0)
+        .and_then(|period| period.adaptations.get(indices.1))
+        .ok_or_else(|| NativeMediaTaskError::Resolution("DASH adaptation disappeared".to_owned()))?;
+    let representation = adaptation.representations.get(indices.2).ok_or_else(|| {
+        NativeMediaTaskError::Resolution("DASH representation disappeared".to_owned())
+    })?;
+    let plan = nova_stream_core::DashRepresentationPlan {
+        representation_id: representation.id.clone(),
+        track_kind: dash_representation_kind(adaptation, representation),
+        bandwidth: representation.bandwidth,
+        units: Vec::new(),
+    };
+    Ok(DashRepresentationMetadata {
+        kind: plan.track_kind,
+        container: dash_track_container(adaptation, representation, &plan),
+        video_codec: dash_representation_codec(adaptation, representation, false),
+        audio_codec: dash_representation_codec(adaptation, representation, true),
+    })
+}
+
 fn stage_dash_manifest_track<F, P>(
     manifest: &DashManifest,
     manifest_url: &str,
@@ -2428,6 +2464,435 @@ where
         container: dash_track_container(adaptation, representation, &plan),
         codec,
     })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn stage_dash_period_files<F, P>(
+    manifest: &DashManifest,
+    manifest_url: &str,
+    context: &HttpRequestContext,
+    indices: &[DashRepresentationIndices],
+    codecs: &[Option<String>],
+    label: &str,
+    staging_dir: &Path,
+    connections: u32,
+    should_cancel: &F,
+    transferred_bytes: &mut u64,
+    on_progress: &P,
+) -> Result<Vec<PathBuf>, NativeMediaTaskError>
+where
+    F: Fn() -> bool + Sync,
+    P: Fn(u64) + Sync,
+{
+    if indices.len() != codecs.len() {
+        return Err(NativeMediaTaskError::Resolution(
+            "DASH period selection metadata is incomplete".to_owned(),
+        ));
+    }
+    let mut paths = Vec::with_capacity(indices.len());
+    for (period_order, (indices, codec)) in indices.iter().zip(codecs).enumerate() {
+        let period_dir = staging_dir.join(format!("dash-period-{period_order:04}-{label}"));
+        let progress_base = *transferred_bytes;
+        let staged = stage_dash_manifest_track(
+            manifest,
+            manifest_url,
+            context,
+            *indices,
+            &period_dir,
+            connections,
+            codec.clone(),
+            should_cancel,
+            &|bytes| on_progress(progress_base.saturating_add(bytes)),
+        )?;
+        *transferred_bytes = (*transferred_bytes).saturating_add(staged.staged_bytes);
+        let output = staging_dir.join(format!(
+            "dash-period-{period_order:04}-{label}.{}",
+            staged.container
+        ));
+        assemble_ordered_parts(&staged.parts, &output)
+            .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+        paths.push(output);
+    }
+    Ok(paths)
+}
+
+fn open_dash_period_demuxer(
+    path: &Path,
+    output_container: &str,
+) -> Result<Box<dyn nova_media_core::processing::MediaDemuxer>, NativeMediaTaskError> {
+    use nova_media_core::processing::{MediaContainer, MediaDemuxer};
+
+    let container = nova_media_core::processing::probe_file_container(path)
+        .map_err(map_dash_processing_error)?;
+    if matches!(output_container, "mp4" | "m4a") {
+        return nova_media_core::processing::open_mp4_remux_demuxer(path)
+            .map_err(map_dash_processing_error);
+    }
+
+    match container {
+        MediaContainer::Mp4 | MediaContainer::FragmentedMp4 => {
+            nova_media_core::processing::Mp4Demuxer::open(path)
+                .map(|demuxer| Box::new(demuxer) as Box<dyn MediaDemuxer>)
+                .map_err(map_dash_processing_error)
+        }
+        MediaContainer::WebM => nova_media_core::processing::WebmDemuxer::open(path)
+            .map(|demuxer| Box::new(demuxer) as Box<dyn MediaDemuxer>)
+            .map_err(map_dash_processing_error),
+        MediaContainer::Matroska => nova_media_core::processing::MatroskaDemuxer::open(path)
+            .map(|demuxer| Box::new(demuxer) as Box<dyn MediaDemuxer>)
+            .map_err(map_dash_processing_error),
+        other => Err(NativeMediaTaskError::UnsupportedFeature(format!(
+            "multi-period DASH cannot natively join {other:?} period files"
+        ))),
+    }
+}
+
+fn map_dash_processing_error(
+    error: nova_media_core::processing::MediaProcessingError,
+) -> NativeMediaTaskError {
+    let message = error.to_string();
+    match error {
+        nova_media_core::processing::MediaProcessingError::UnsupportedCodec(_)
+        | nova_media_core::processing::MediaProcessingError::UnsupportedContainer(_)
+        | nova_media_core::processing::MediaProcessingError::UnsupportedOperation(_) => {
+            NativeMediaTaskError::UnsupportedFeature(message)
+        }
+        _ => NativeMediaTaskError::Transfer(message),
+    }
+}
+
+fn mux_dash_period_groups<F>(
+    groups: &[Vec<PathBuf>],
+    destination: &Path,
+    output_container: &str,
+    should_cancel: &F,
+) -> Result<(u64, nova_media_core::MediaTrackKind), NativeMediaTaskError>
+where
+    F: Fn() -> bool + Sync,
+{
+    use nova_media_core::processing::{MediaDemuxer, MediaTrackKind};
+
+    let mut demuxers = groups
+        .iter()
+        .map(|paths| {
+            let inputs = paths
+                .iter()
+                .map(|path| open_dash_period_demuxer(path, output_container))
+                .collect::<Result<Vec<_>, _>>()?;
+            nova_media_core::processing::SequentialMediaDemuxer::new(inputs)
+                .map_err(map_dash_processing_error)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut has_video = false;
+    let mut has_audio = false;
+    for track in demuxers.iter().flat_map(|demuxer| &demuxer.probe().tracks) {
+        match track.kind {
+            MediaTrackKind::Video if !has_video => has_video = true,
+            MediaTrackKind::Audio if !has_audio => has_audio = true,
+            MediaTrackKind::Video | MediaTrackKind::Audio => {
+                return Err(NativeMediaTaskError::UnsupportedFeature(
+                    "multi-period DASH produced duplicate selected track kinds".to_owned(),
+                ));
+            }
+            _ => {
+                return Err(NativeMediaTaskError::UnsupportedFeature(
+                    "multi-period DASH remux does not support subtitle or data tracks yet"
+                        .to_owned(),
+                ));
+            }
+        }
+    }
+    if !has_video && !has_audio {
+        return Err(NativeMediaTaskError::Resolution(
+            "multi-period DASH contains no selected audio or video tracks".to_owned(),
+        ));
+    }
+
+    let mut inputs = demuxers
+        .iter_mut()
+        .map(|demuxer| demuxer as &mut dyn MediaDemuxer)
+        .collect::<Vec<_>>();
+    let control = || {
+        if should_cancel() {
+            MediaProcessingControl::Cancel
+        } else {
+            MediaProcessingControl::Continue
+        }
+    };
+    let result = match output_container {
+        "mp4" | "m4a" => nova_media_core::processing::mux_demuxers_to_mp4_controlled(
+            destination,
+            &mut inputs,
+            control,
+            |_| {},
+        ),
+        "webm" => nova_media_core::processing::mux_demuxers_to_webm_controlled(
+            destination,
+            &mut inputs,
+            control,
+            |_| {},
+        ),
+        "mkv" | "mka" => nova_media_core::processing::mux_demuxers_to_matroska_controlled(
+            destination,
+            &mut inputs,
+            control,
+            |_| {},
+        ),
+        other => {
+            return Err(NativeMediaTaskError::UnsupportedFeature(format!(
+                "multi-period DASH native remux cannot write '.{other}' directly"
+            )));
+        }
+    }
+    .map_err(map_dash_processing_error)?;
+    let kind = match (has_video, has_audio) {
+        (true, true) => nova_media_core::MediaTrackKind::AudioVideo,
+        (true, false) => nova_media_core::MediaTrackKind::Video,
+        (false, true) => nova_media_core::MediaTrackKind::Audio,
+        (false, false) => unreachable!("empty DASH tracks were rejected above"),
+    };
+    Ok((result.bytes_written, kind))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn stage_dash_static_multi_period<F, P>(
+    manifest_url: &str,
+    manifest: DashManifest,
+    context: &HttpRequestContext,
+    staging_dir: &Path,
+    connections: u32,
+    mode: MediaSelectionMode,
+    max_height: Option<u32>,
+    output_container: &str,
+    options: Option<&MediaDownloadOptions>,
+    should_cancel: &F,
+    on_progress: &P,
+) -> Result<ManifestStageOutput, NativeMediaTaskError>
+where
+    F: Fn() -> bool + Sync,
+    P: Fn(u64) + Sync,
+{
+    if manifest.periods.is_empty() || manifest.periods.len() > MAX_NATIVE_DASH_PERIODS {
+        return Err(NativeMediaTaskError::UnsupportedFeature(format!(
+            "static DASH must contain between 1 and {MAX_NATIVE_DASH_PERIODS} periods"
+        )));
+    }
+
+    let mut video_indices = Vec::with_capacity(manifest.periods.len());
+    let mut audio_indices = Vec::with_capacity(manifest.periods.len());
+    for (period_index, _) in manifest.periods.iter().enumerate() {
+        video_indices.push(if mode == MediaSelectionMode::Audio {
+            None
+        } else {
+            best_dash_track_indices(
+                &manifest,
+                DashTrackKind::Video,
+                Some(period_index),
+                max_height,
+            )
+        });
+        audio_indices.push(best_dash_track_indices(
+            &manifest,
+            DashTrackKind::Audio,
+            Some(period_index),
+            None,
+        ));
+    }
+
+    if mode == MediaSelectionMode::Audio {
+        if audio_indices.iter().any(Option::is_none) {
+            return Err(NativeMediaTaskError::UnsupportedFeature(
+                "every selected DASH period must contain an audio representation".to_owned(),
+            ));
+        }
+    } else if video_indices.iter().any(Option::is_none) {
+        return Err(NativeMediaTaskError::UnsupportedFeature(
+            "every selected DASH period must contain a video representation at the requested quality"
+                .to_owned(),
+        ));
+    }
+
+    let separate_audio = mode == MediaSelectionMode::Video
+        && audio_indices.iter().all(Option::is_some);
+    if mode == MediaSelectionMode::Video
+        && !separate_audio
+        && audio_indices.iter().any(Option::is_some)
+    {
+        return Err(NativeMediaTaskError::UnsupportedFeature(
+            "DASH periods switch between embedded and separate audio representations".to_owned(),
+        ));
+    }
+
+    let selected_indices = if mode == MediaSelectionMode::Audio {
+        audio_indices.iter().flatten().copied().collect::<Vec<_>>()
+    } else {
+        video_indices.iter().flatten().copied().collect::<Vec<_>>()
+    };
+    let selected_metadata = selected_indices
+        .iter()
+        .map(|indices| dash_representation_metadata(&manifest, *indices))
+        .collect::<Result<Vec<_>, _>>()?;
+    ensure_dash_period_metadata_is_stable(&selected_metadata, "selected")?;
+
+    let audio_metadata = if mode == MediaSelectionMode::Audio {
+        selected_metadata.clone()
+    } else if separate_audio {
+        let indices = audio_indices.iter().flatten().copied().collect::<Vec<_>>();
+        let metadata = indices
+            .iter()
+            .map(|indices| dash_representation_metadata(&manifest, *indices))
+            .collect::<Result<Vec<_>, _>>()?;
+        ensure_dash_period_metadata_is_stable(&metadata, "audio")?;
+        metadata
+    } else {
+        Vec::new()
+    };
+
+    let mux_container = match output_container {
+        "mp4" | "m4a" | "mkv" | "mka" | "webm" => output_container,
+        _ if mode == MediaSelectionMode::Audio => "mp4",
+        other => {
+            return Err(NativeMediaTaskError::UnsupportedFeature(format!(
+                "multi-period DASH cannot natively remux video to '.{other}'"
+            )));
+        }
+    };
+
+    for period_index in 0..selected_metadata.len() {
+        let selected = &selected_metadata[period_index];
+        if separate_audio {
+            let video = if mode == MediaSelectionMode::Audio {
+                &audio_metadata[period_index]
+            } else {
+                selected
+            };
+            let audio = &audio_metadata[period_index];
+            validate_manifest_mux_pair(
+                &video.container,
+                video.video_codec.as_deref(),
+                &audio.container,
+                audio.audio_codec.as_deref(),
+                mux_container,
+            )?;
+            validate_manifest_conversion_if_requested(
+                options,
+                nova_media_core::MediaTrackKind::AudioVideo,
+                mux_container,
+                video.video_codec.as_deref(),
+                audio.audio_codec.as_deref(),
+            )?;
+        } else {
+            let kind = if mode == MediaSelectionMode::Audio {
+                nova_media_core::MediaTrackKind::Audio
+            } else if selected.video_codec.is_some() && selected.audio_codec.is_some() {
+                nova_media_core::MediaTrackKind::AudioVideo
+            } else {
+                nova_media_core::MediaTrackKind::Video
+            };
+            validate_manifest_conversion_if_requested(
+                options,
+                kind,
+                &selected.container,
+                selected.video_codec.as_deref(),
+                selected.audio_codec.as_deref(),
+            )?;
+        }
+    }
+
+    let mut transferred_bytes = 0_u64;
+    let selected_codecs = selected_metadata
+        .iter()
+        .map(|metadata| {
+            if mode == MediaSelectionMode::Audio {
+                metadata.audio_codec.clone()
+            } else {
+                metadata.video_codec.clone()
+            }
+        })
+        .collect::<Vec<_>>();
+    let selected_files = stage_dash_period_files(
+        &manifest,
+        manifest_url,
+        context,
+        &selected_indices,
+        &selected_codecs,
+        if mode == MediaSelectionMode::Audio { "audio" } else { "video" },
+        staging_dir,
+        connections,
+        should_cancel,
+        &mut transferred_bytes,
+        on_progress,
+    )?;
+    let mut groups = vec![selected_files];
+    if separate_audio {
+        let indices = audio_indices.iter().flatten().copied().collect::<Vec<_>>();
+        let codecs = audio_metadata
+            .iter()
+            .map(|metadata| metadata.audio_codec.clone())
+            .collect::<Vec<_>>();
+        groups.push(stage_dash_period_files(
+            &manifest,
+            manifest_url,
+            context,
+            &indices,
+            &codecs,
+            "audio",
+            staging_dir,
+            connections,
+            should_cancel,
+            &mut transferred_bytes,
+            on_progress,
+        )?);
+    }
+
+    let output_path = staging_dir.join(format!("dash-multi-period.{mux_container}"));
+    let (staged_bytes, kind) =
+        mux_dash_period_groups(&groups, &output_path, mux_container, should_cancel)?;
+    if (mode == MediaSelectionMode::Audio && kind != nova_media_core::MediaTrackKind::Audio)
+        || (mode == MediaSelectionMode::Video
+            && kind == nova_media_core::MediaTrackKind::Audio)
+        || (separate_audio && kind != nova_media_core::MediaTrackKind::AudioVideo)
+    {
+        return Err(NativeMediaTaskError::UnsupportedFeature(
+            "DASH period representations do not match the selected audio/video track layout"
+                .to_owned(),
+        ));
+    }
+    let first_metadata = &selected_metadata[0];
+    let audio_codec = if mode == MediaSelectionMode::Audio {
+        first_metadata.audio_codec.clone()
+    } else if separate_audio {
+        audio_metadata.first().and_then(|metadata| metadata.audio_codec.clone())
+    } else {
+        first_metadata.audio_codec.clone()
+    };
+    Ok(ManifestStageOutput {
+        parts: vec![(0, output_path)],
+        staged_bytes,
+        input_container: Some(mux_container.to_owned()),
+        kind,
+        video_codec: (kind != nova_media_core::MediaTrackKind::Audio)
+            .then(|| first_metadata.video_codec.clone())
+            .flatten(),
+        audio_codec,
+    })
+}
+
+fn ensure_dash_period_metadata_is_stable(
+    metadata: &[DashRepresentationMetadata],
+    label: &str,
+) -> Result<(), NativeMediaTaskError> {
+    let Some(first) = metadata.first() else {
+        return Err(NativeMediaTaskError::Resolution(format!(
+            "DASH {label} selection produced no periods"
+        )));
+    };
+    if metadata.iter().any(|current| current != first) {
+        return Err(NativeMediaTaskError::UnsupportedFeature(format!(
+            "DASH {label} period changes container or codec; native period joining requires a stable stream configuration"
+        )));
+    }
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2693,10 +3158,24 @@ where
     let manifest_context =
         nova_media_core::scope_http_request_context(context, manifest_url, &response.effective_url);
     if manifest.periods.len() > 1 {
-        return Err(NativeMediaTaskError::UnsupportedFeature(
-            "DASH presentations with multiple periods require period-aware timeline assembly"
-                .to_owned(),
-        ));
+        if manifest.is_dynamic {
+            return Err(NativeMediaTaskError::UnsupportedFeature(
+                "dynamic DASH with multiple active periods is not supported yet".to_owned(),
+            ));
+        }
+        return stage_dash_static_multi_period(
+            &response.effective_url,
+            manifest,
+            &manifest_context,
+            staging_dir,
+            connections,
+            mode,
+            max_height,
+            output_container,
+            options,
+            should_cancel,
+            on_progress,
+        );
     }
     let video_indices =
         best_dash_track_indices(&manifest, DashTrackKind::Video, None, max_height);
@@ -6626,6 +7105,137 @@ mod tests {
         assert_eq!(assembled.bytes, 9);
         assert_eq!(std::fs::read(&output).expect("DASH output"), b"INITMEDIA");
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn native_dash_static_multiple_periods_remux_to_one_contiguous_video() {
+        use nova_media_core::processing::{
+            MediaCodec, MediaMuxer, MediaPacket, MediaPacketFlags, MediaTimeBase, MediaTrack,
+            MediaTrackKind, Mp4Muxer, VideoParameters,
+        };
+
+        let dir = unique_temp_dir("nova-native-dash-multiple-periods");
+        std::fs::create_dir_all(&dir).expect("create DASH test directory");
+        let time_base = MediaTimeBase::new(1, 1000).expect("DASH video time base");
+        let create_period_mp4 = |name: &str| {
+            let path = dir.join(name);
+            let track = MediaTrack {
+                id: 1,
+                kind: MediaTrackKind::Video,
+                codec: MediaCodec::H264,
+                time_base,
+                language: None,
+                video: Some(VideoParameters {
+                    width: 640,
+                    height: 360,
+                    frame_rate: Some(1.0),
+                    bitrate_bps: None,
+                }),
+                audio: None,
+                codec_private: vec![1, 66, 0, 30],
+            };
+            let mut muxer = Mp4Muxer::create(&path).expect("create DASH period MP4");
+            let track_id = muxer.add_track(&track).expect("add period video track");
+            muxer
+                .write_packet(&MediaPacket {
+                    track_id,
+                    pts: Some(nova_media_core::processing::MediaTimestamp {
+                        value: 0,
+                        time_base,
+                    }),
+                    dts: Some(nova_media_core::processing::MediaTimestamp {
+                        value: 0,
+                        time_base,
+                    }),
+                    duration: Some(nova_media_core::processing::MediaTimestamp {
+                        value: 1000,
+                        time_base,
+                    }),
+                    flags: MediaPacketFlags {
+                        keyframe: true,
+                        discontinuity: false,
+                        corrupted: false,
+                    },
+                    data: b"period-frame".to_vec(),
+                })
+                .expect("write period video sample");
+            muxer.finalize().expect("finalize DASH period MP4");
+            std::fs::read(path).expect("read DASH period MP4")
+        };
+        let period_zero = create_period_mp4("period-zero-source.mp4");
+        let period_one = create_period_mp4("period-one-source.mp4");
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind multi-period DASH server");
+        let address = listener.local_addr().expect("multi-period DASH address");
+        let manifest = format!(
+            "<MPD type=\"static\" mediaPresentationDuration=\"PT2S\"><Period id=\"p0\" start=\"PT0S\" duration=\"PT1S\"><AdaptationSet contentType=\"video\" mimeType=\"video/mp4\" codecs=\"avc1.42001e\"><Representation id=\"v0\" bandwidth=\"1000\" width=\"640\" height=\"360\"><BaseURL>period-zero.mp4</BaseURL></Representation></AdaptationSet></Period><Period id=\"p1\" start=\"PT1S\" duration=\"PT1S\"><AdaptationSet contentType=\"video\" mimeType=\"video/mp4\" codecs=\"avc1.42001e\"><Representation id=\"v1\" bandwidth=\"1000\" width=\"640\" height=\"360\"><BaseURL>period-one.mp4</BaseURL></Representation></AdaptationSet></Period></MPD>"
+        )
+        .into_bytes();
+        let server = std::thread::spawn(move || {
+            for _ in 0..3 {
+                let (mut stream, _) = listener.accept().expect("accept multi-period DASH request");
+                let mut request = [0_u8; 4096];
+                let read = stream
+                    .read(&mut request)
+                    .expect("read multi-period DASH request");
+                let request = String::from_utf8_lossy(&request[..read]);
+                let body = if request.contains("GET /stream.mpd ") {
+                    &manifest
+                } else if request.contains("GET /period-zero.mp4 ") {
+                    &period_zero
+                } else if request.contains("GET /period-one.mp4 ") {
+                    &period_one
+                } else {
+                    panic!("unexpected multi-period DASH request: {request}");
+                };
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                stream
+                    .write_all(response.as_bytes())
+                    .and_then(|_| stream.write_all(body))
+                    .expect("write multi-period DASH response");
+            }
+        });
+
+        let staging = dir.join("staging");
+        let progress = std::sync::Mutex::new(Vec::new());
+        let staged = stage_dash_stream(
+            &format!("http://{address}/stream.mpd"),
+            &HttpRequestContext::default(),
+            &staging,
+            1,
+            MediaSelectionMode::Video,
+            None,
+            "mp4",
+            nova_media_core::MediaTrackKind::Video,
+            None,
+            &|| false,
+            &|| false,
+            &|| {},
+            &|value| progress.lock().expect("progress").push(value),
+        )
+        .expect("stage and remux static DASH periods");
+        server.join().expect("multi-period DASH server");
+
+        assert_eq!(staged.parts.len(), 1);
+        assert_eq!(staged.input_container.as_deref(), Some("mp4"));
+        assert_eq!(staged.kind, nova_media_core::MediaTrackKind::Video);
+        assert_eq!(
+            progress.lock().expect("progress").last().copied(),
+            Some((period_zero.len() + period_one.len()) as u64)
+        );
+        let output = dir.join("joined.mp4");
+        assemble_ordered_parts(&staged.parts, &output).expect("publish joined DASH output");
+        let mut demuxer = nova_media_core::processing::Mp4Demuxer::open(&output)
+            .expect("read joined DASH output");
+        assert_eq!(demuxer.packet_count(), 2);
+        let first = demuxer.next_packet().expect("first output packet").expect("packet");
+        let second = demuxer.next_packet().expect("second output packet").expect("packet");
+        assert_eq!(first.dts.map(|timestamp| timestamp.value), Some(0));
+        assert_eq!(second.dts.map(|timestamp| timestamp.value), Some(1000));
+        assert_eq!(demuxer.next_packet().expect("end of output"), None);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

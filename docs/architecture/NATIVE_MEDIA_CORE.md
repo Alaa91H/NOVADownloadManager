@@ -116,7 +116,7 @@ request URL + authorized headers/cookies
 - bounded player-transform plan cache with fail-closed invalidation; unknown helper aliases, compound returns and unverified transform semantics are rejected rather than partially executed;
 - native direct media transfer execution;
 - end-to-end HLS VOD and live recording with selected master variants, alternate audio renditions, per-track sequence cursors, pause/resume checkpoints, committed-part recovery and native audio/video muxing;
-- end-to-end static and dynamic DASH execution with selected audio/video representations, same-period pairing, per-track timeline cursors, pause/resume checkpoints and native muxing when the input codecs and containers are supported;
+- end-to-end static and dynamic DASH execution with selected audio/video representations, same-period pairing, per-track timeline cursors, pause/resume checkpoints and native muxing when the input codecs and containers are supported; static multi-period manifests are joined by the native demux/mux path when every period preserves compatible tracks and a contiguous timeline;
 - native manifest tasks integrated with the shared task lifecycle, cancellation generation, queue accounting and persisted snapshots;
 - HLS and DASH quality caps are applied to the selected video variant/representation before segment requests begin;
 - manifest video tasks choose a stable output container from the declared stream container or protocol default, and validate any required single-track remux against the actual parsed container/codecs before staging media segments;
@@ -162,7 +162,7 @@ request URL + authorized headers/cookies
 Still isolated behind typed interfaces:
 
 - newly observed throttling/challenge transform families that fall outside the verified native parser subset;
-- DASH presentations containing multiple periods, which require period-aware timeline assembly;
+- dynamic DASH presentations containing multiple active periods; static multi-period DASH is supported only when selected periods retain identical track definitions, supported containers/codecs and contiguous per-track decode timelines;
 - HLS/DASH track pairs whose source containers or codecs are not supported by the linked native muxer;
 - subtitle/thumbnail/metadata embedding into the final container;
 - chapter splitting and time-based partial-section extraction;
@@ -184,7 +184,7 @@ Media Bridge runtime/source/routes are deleted. The remaining acceptance coverag
 
 - direct media;
 - HLS VOD and live — task path implemented, final cross-platform acceptance still required;
-- DASH VOD and dynamic manifests — task path implemented, final cross-platform acceptance still required;
+- DASH VOD, including compatible static multi-period manifests, and dynamic manifests — task path implemented, final cross-platform acceptance still required;
 - separate audio/video tracks — native staging/resume/task execution and copy-mux path implemented, final cross-platform acceptance still required;
 - subtitles — native manual/automatic sidecars implemented; embed acceptance remains;
 - playlists — native probe/pagination and bounded batch task creation implemented; final cross-platform acceptance remains;

@@ -20,6 +20,7 @@ mod pipeline;
 mod probe;
 mod progress;
 mod remux;
+mod sequence;
 mod types;
 mod webm;
 
@@ -53,6 +54,7 @@ pub use progress::{
     MediaProcessingControl, MediaProcessingPhase, MediaProcessingProgress, MediaProgressSink,
 };
 pub use remux::open_mp4_remux_demuxer;
+pub use sequence::SequentialMediaDemuxer;
 pub use types::{
     AudioParameters, MediaCodec, MediaContainer, MediaPacket, MediaPacketFlags, MediaProbe,
     MediaTimeBase, MediaTimestamp, MediaTrack, MediaTrackKind, VideoParameters,
