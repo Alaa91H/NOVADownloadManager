@@ -404,42 +404,79 @@ Dialog {
                     clip: true
                     boundsBehavior: Flickable.StopAtBounds
                     model: root.torrentFiles
+                    activeFocusOnTab: true
+                    keyNavigationEnabled: true
+                    keyNavigationWraps: false
+                    Accessible.role: Accessible.List
+                    Accessible.name: root.t("torrent.fileSelection")
+                    Accessible.description: root.t("torrent.selectedFiles") + ": "
+                        + String(root.selectedFileCount) + "/" + String(root.torrentFiles.length)
+                    onActiveFocusChanged: {
+                        if (activeFocus && count > 0 && currentIndex < 0)
+                            currentIndex = 0
+                    }
                     ScrollBar.vertical: ScrollBar {}
 
-                    delegate: RowLayout {
+                    delegate: Rectangle {
                         required property int index
                         required property var modelData
                         width: torrentFileList.width
                         height: 40
-                        spacing: 8
+                        color: "transparent"
+                        border.width: torrentFileList.activeFocus
+                            && torrentFileList.currentIndex === index ? 2 : 0
+                        border.color: Theme.focusRing
+                        Accessible.role: Accessible.ListItem
+                        Accessible.name: String(modelData.path || String(index + 1))
+                        Accessible.description: root.formatBytes(modelData.length) + " · "
+                            + root.t("torrent.priority") + ": "
+                            + root.t("torrent." + root.filePriority(index))
+                        Accessible.focusable: true
+                        Accessible.focused: torrentFileList.activeFocus
+                            && torrentFileList.currentIndex === index
+                        Accessible.selectable: true
+                        Accessible.selected: torrentFileList.currentIndex === index
+                        Accessible.onPressAction: torrentFileList.currentIndex = index
 
-                        ComboBox {
-                            Layout.preferredWidth: 115
-                            enabled: !root.creating
-                            model: [root.t("torrent.high"), root.t("torrent.normal"), root.t("torrent.skip")]
-                            currentIndex: Math.max(0, root.priorityIds.indexOf(root.filePriority(index)))
-                            Accessible.name: root.t("torrent.priority") + ": " + String(modelData.path || "")
-                            onActivated: selectedIndex => {
-                                root.setFilePriority(index, root.priorityIds[selectedIndex])
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.leftMargin: 4
+                            anchors.rightMargin: 4
+                            spacing: 8
+
+                            ComboBox {
+                                Layout.preferredWidth: 115
+                                enabled: !root.creating
+                                model: [
+                                    root.t("torrent.high"),
+                                    root.t("torrent.normal"),
+                                    root.t("torrent.skip")
+                                ]
+                                currentIndex: Math.max(0, root.priorityIds.indexOf(root.filePriority(index)))
+                                Accessible.name: root.t("torrent.priority") + ": "
+                                    + String(modelData.path || "")
+                                onActivated: selectedIndex => {
+                                    root.setFilePriority(index, root.priorityIds[selectedIndex])
+                                }
                             }
-                        }
 
-                        Text {
-                            Layout.fillWidth: true
-                            text: String(modelData.path || "")
-                            color: root.filePriority(index) === "skip"
-                                ? Theme.textMuted : Theme.textPrimary
-                            font.pixelSize: Theme.fontSmall
-                            elide: Text.ElideMiddle
-                            Accessible.name: text
-                        }
+                            Text {
+                                Layout.fillWidth: true
+                                text: String(modelData.path || "")
+                                color: root.filePriority(index) === "skip"
+                                    ? Theme.textMuted : Theme.textPrimary
+                                font.pixelSize: Theme.fontSmall
+                                elide: Text.ElideMiddle
+                                Accessible.name: text
+                            }
 
-                        Text {
-                            Layout.preferredWidth: 85
-                            text: root.formatBytes(modelData.length)
-                            color: Theme.textMuted
-                            font.pixelSize: Theme.fontTiny
-                            horizontalAlignment: Text.AlignRight
+                            Text {
+                                Layout.preferredWidth: 85
+                                text: root.formatBytes(modelData.length)
+                                color: Theme.textMuted
+                                font.pixelSize: Theme.fontTiny
+                                horizontalAlignment: Text.AlignRight
+                            }
                         }
                     }
                 }

@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use url::Url;
 
+const MAX_DASH_TRANSFER_UNITS: usize = 50_000;
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct DashTimelineEntry {
     pub start_time: Option<u64>,
@@ -412,6 +414,8 @@ pub struct DashRepresentationPlan {
 pub enum DashPlanError {
     #[error("dynamic DASH without SegmentTimeline requires the live refresh scheduler")]
     DynamicManifest,
+    #[error("DASH representation plan exceeds the transfer unit limit")]
+    TooManyTransferUnits,
     #[error("DASH SegmentTimeline repeat is invalid or cannot be bounded")]
     InvalidTimelineRepeat,
     #[error("DASH adaptation set index is out of range")]
@@ -568,9 +572,20 @@ pub fn build_dash_representation_plan(
         let numerator = u128::from(total_millis) * u128::from(timescale);
         let denominator = u128::from(segment_duration) * 1000;
         let segment_count = numerator.saturating_add(denominator.saturating_sub(1)) / denominator;
-        let segment_count = u64::try_from(segment_count).unwrap_or(u64::MAX);
+        if segment_count > MAX_DASH_TRANSFER_UNITS as u128 {
+            return Err(DashPlanError::TooManyTransferUnits);
+        }
+        let segment_count = usize::try_from(segment_count)
+            .map_err(|_| DashPlanError::TooManyTransferUnits)?;
+        if units.len() > MAX_DASH_TRANSFER_UNITS
+            || segment_count > MAX_DASH_TRANSFER_UNITS - units.len()
+        {
+            return Err(DashPlanError::TooManyTransferUnits);
+        }
 
         for offset in 0..segment_count {
+            let offset =
+                u64::try_from(offset).map_err(|_| DashPlanError::TooManyTransferUnits)?;
             let number = start_number.saturating_add(offset);
             let rendered =
                 render_dash_template(media_template, representation, Some(number), None)?;
@@ -704,6 +719,9 @@ fn append_timeline_units(
         };
 
         for _ in 0..=repeat_count {
+            if units.len() >= MAX_DASH_TRANSFER_UNITS {
+                return Err(DashPlanError::TooManyTransferUnits);
+            }
             let rendered = render_dash_template(
                 media_template,
                 representation,
@@ -1075,6 +1093,53 @@ mod tests {
             "https://cdn.test/path/chunk-005-2000.m4s"
         );
         assert_eq!(plan.units[3].number, Some(7));
+    }
+
+    #[test]
+    fn rejects_fixed_duration_plans_that_exceed_the_transfer_unit_limit() {
+        let manifest = parse_dash(
+            r#"<MPD type="static" mediaPresentationDuration="PT50001S">
+<Period><AdaptationSet contentType="video">
+<SegmentTemplate timescale="1" duration="1" media="$Number$.m4s"/>
+<Representation id="v1" bandwidth="1000"/>
+</AdaptationSet></Period></MPD>"#,
+        )
+        .expect("DASH manifest");
+
+        assert_eq!(
+            build_dash_representation_plan(
+                &manifest,
+                "https://cdn.test/manifest.mpd",
+                0,
+                0,
+                0,
+            ),
+            Err(DashPlanError::TooManyTransferUnits)
+        );
+    }
+
+    #[test]
+    fn rejects_timeline_repeats_that_exceed_the_transfer_unit_limit() {
+        let manifest = parse_dash(
+            r#"<MPD type="static"><Period><AdaptationSet contentType="audio">
+<SegmentTemplate timescale="1" media="$Time$.m4s">
+<SegmentTimeline><S t="0" d="1" r="50000"/></SegmentTimeline>
+</SegmentTemplate>
+<Representation id="a1" bandwidth="128000"/>
+</AdaptationSet></Period></MPD>"#,
+        )
+        .expect("DASH manifest");
+
+        assert_eq!(
+            build_dash_representation_plan(
+                &manifest,
+                "https://cdn.test/manifest.mpd",
+                0,
+                0,
+                0,
+            ),
+            Err(DashPlanError::TooManyTransferUnits)
+        );
     }
 
     #[test]

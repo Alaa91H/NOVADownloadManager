@@ -13,12 +13,15 @@ registries used to execute the job. The current linked set includes H.264 and
 VP9 video encoders, plus MJPEG and raw-video encoders only where the runtime
 container registry accepts them. Audio encoders include AAC, MP3, Opus,
 Vorbis, FLAC, and PCM. Decoder reporting is separate and includes decoder-only
-source formats when the registry provides them. Each advertised pair is
-checked against the engine's codec and muxer registries. It supports stream
-copy or re-encoding, bitrate/quality settings, scaling, frame rate, sample
-rate, and mono/stereo output. It does not claim every codec, container,
-profile, or hardware encoder. Unknown source codecs and incompatible copy/mux
-combinations fail closed when metadata is available.
+source formats when the registry provides them, including AV1 decoding for
+AVIF. The AV1 decoder uses the portable Rust path because the x86 assembly
+objects in its optimized path are not position-independent for NOVA's mobile
+FFI shared library. Each advertised pair is checked against the engine's codec
+and muxer registries. It supports stream copy or re-encoding, bitrate/quality
+settings, scaling, frame rate, sample rate, and mono/stereo output. It does not
+claim every codec, container, profile, or hardware encoder. Unknown source
+codecs and incompatible copy/mux combinations fail closed when metadata is
+available.
 
 Separate video/audio downloads retain their native MP4 mux route. Other
 containers use the linked codec engine and are preflighted against the source
@@ -32,13 +35,16 @@ The Android JNI bridge now projects the codec registry and invokes the same
 local transcode API over source and destination paths constrained to the app's
 private files root. The Compose media screen imports through Android's document
 picker and exports the completed file through SAF after verifying its byte
-count and SHA-256. Progressive HTTP(S) media streams are selected in the UI,
-then re-resolved and downloaded in Rust with credentials scoped to the stream;
-the encrypted Android task intent contains only the source page and format ID.
-HLS/DASH task orchestration, playlist batches, subtitle jobs, and torrent remain
-outside the Android task surface. The cross-target build and real-device media
-runs are pending; source integration does not establish that every Android ABI
-builds or that long transcodes meet memory, heat, battery, and lifecycle limits.
+count and SHA-256. Progressive HTTP(S), finite HLS VOD, and static one-period
+DASH streams are selected in the UI, then re-resolved and downloaded in Rust
+with credentials scoped to the stream; the encrypted Android task intent
+contains only the source page and format ID. HLS can stage a separate audio
+rendition and use the linked muxer when the registered containers and codecs
+support the pair. Live HLS, dynamic or multi-period DASH, playlist batches,
+subtitle tasks, and torrent remain outside the Android task surface. The
+cross-target build and real-device media runs are pending; source integration
+does not establish that every Android ABI builds or that long transcodes meet
+memory, heat, battery, and lifecycle limits.
 
 The project still contains a compatibility manager for optional legacy tools.
 The download, mux, subtitle, and conversion paths in this backend do not use
