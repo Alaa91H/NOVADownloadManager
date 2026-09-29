@@ -223,7 +223,7 @@ where
                         &unit.url,
                         &mut file,
                         &request_context,
-                        || control(),
+                        &control,
                     )
                     .map_err(map_transport_error)?
                     .bytes_received;

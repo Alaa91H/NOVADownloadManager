@@ -294,8 +294,8 @@ pub fn select_youtube_download_plan(
                 .unwrap_or(true)
         })
         .filter(|stream| {
-            policy.max_height.map_or(true, |limit| {
-                stream.height.map_or(true, |height| height <= limit)
+            policy.max_height.is_none_or(|limit| {
+                stream.height.is_none_or(|height| height <= limit)
             })
         })
         .collect::<Vec<_>>();
@@ -329,7 +329,7 @@ pub fn select_youtube_download_plan(
 
     if policy.prefer_separate_tracks {
         if let (Some(video), Some(audio)) = (best_video, best_audio) {
-            let separate_is_better = best_muxed.map_or(true, |muxed| {
+            let separate_is_better = best_muxed.is_none_or(|muxed| {
                 compare_youtube_streams(video, muxed, &policy).is_gt()
             });
             if separate_is_better {

@@ -56,8 +56,8 @@ pub fn select_media_stream<'a>(
         .iter()
         .filter(|stream| matches_mode(stream, policy.mode))
         .filter(|stream| {
-            policy.max_height.map_or(true, |limit| {
-                stream.height.map_or(true, |height| height <= limit)
+            policy.max_height.is_none_or(|limit| {
+                stream.height.is_none_or(|height| height <= limit)
             })
         })
         .max_by(|left, right| compare_streams(left, right, policy))

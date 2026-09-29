@@ -363,9 +363,12 @@ fn stage_one_unit(
         )
         .map_err(map_transport_error)?;
     } else {
-        stream_http_body_controlled_with_context(&unit.uri, &mut file, &request_context, || {
-            control()
-        })
+        stream_http_body_controlled_with_context(
+            &unit.uri,
+            &mut file,
+            &request_context,
+            control,
+        )
         .map_err(map_transport_error)?;
     }
 
