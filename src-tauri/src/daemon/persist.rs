@@ -542,6 +542,7 @@ pub(crate) mod tests {
 
     pub(crate) fn test_state(data_dir: &str) -> AppState {
         AppState {
+            queue_catalog: Mutex::new(Vec::new()),
             native_media_jobs: Mutex::new(HashMap::new()),
             torrent_jobs: Mutex::new(HashMap::new()),
             torrent_analyses: Mutex::new(HashMap::new()),
