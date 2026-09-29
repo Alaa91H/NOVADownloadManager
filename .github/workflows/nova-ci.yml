@@ -299,6 +299,7 @@ jobs:
             libzstd-dev \
             libnghttp2-dev \
             libssh2-1-dev \
+            nasm \
             pkg-config
 
       - name: Cargo check
@@ -446,7 +447,20 @@ jobs:
             libzstd-dev \
             libnghttp2-dev \
             libssh2-1-dev \
+            nasm \
             pkg-config
+
+      - name: Install NASM (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install nasm
+          nasm -v
+
+      - name: Install NASM (Windows x64)
+        if: runner.os == 'Windows' && matrix.arch == 'x64'
+        run: |
+          choco install nasm --yes --no-progress
+          nasm -v
 
       - name: Build native Rust runtime
         run: cargo build --manifest-path src-tauri/Cargo.toml --release --bin nova-native-backend --bin nova-native-host
