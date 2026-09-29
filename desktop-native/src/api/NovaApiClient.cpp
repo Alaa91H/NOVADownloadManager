@@ -68,6 +68,19 @@ NovaApiClient::NovaApiClient(QObject *parent)
     );
 }
 
+NovaApiClient::~NovaApiClient() {
+    if (m_streamReconnectTimer) {
+        m_streamReconnectTimer->stop();
+    }
+    if (m_streamReply) {
+        QNetworkReply *reply = m_streamReply;
+        m_streamReply = nullptr;
+        m_streamBuffer.clear();
+        QObject::disconnect(reply, nullptr, this, nullptr);
+        reply->abort();
+    }
+}
+
 int NovaApiClient::streamReconnectDelayForAttempt(int attempt) noexcept {
     const int boundedAttempt = qBound(0, attempt, 5);
     const int delay = 250 * (1 << boundedAttempt);

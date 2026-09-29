@@ -60,6 +60,7 @@ class NovaApiClient final : public QObject {
 
 public:
     explicit NovaApiClient(QObject *parent = nullptr);
+    ~NovaApiClient() override;
 
     bool connected() const noexcept { return m_connected; }
     QString statusText() const { return m_statusText; }
