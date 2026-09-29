@@ -100,7 +100,7 @@ pub struct UpdateTorrentFilesBody {
     pub file_priorities: Vec<FilePriority>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateTorrentSeedingBody {
     pub enabled: bool,

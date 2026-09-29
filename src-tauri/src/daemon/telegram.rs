@@ -828,12 +828,14 @@ fn handle_telegram_command(
                             &format!("Media added: {}", escape_html(name)),
                         );
                     }
-                    Err(error) => send_telegram_msg_blocking_with_api(
-                        api_base,
-                        token,
-                        chat_id,
-                        &format!("Failed: {}", escape_html(&error.message)),
-                    ),
+                    Err(error) => {
+                        send_telegram_msg_blocking_with_api(
+                            api_base,
+                            token,
+                            chat_id,
+                            &format!("Failed: {}", escape_html(&error.message)),
+                        );
+                    }
                 }
             }
             "/pause" | "/resume" | "/delete" => {
@@ -861,18 +863,22 @@ fn handle_telegram_command(
                             },
                         };
                         match run_control_command(state, rt, command) {
-                            Ok(_) => send_telegram_msg_blocking_with_api(
-                                api_base,
-                                token,
-                                chat_id,
-                                &format!("{}: {}", cmd.trim_start_matches('/'), arg.trim()),
-                            ),
-                            Err(error) => send_telegram_msg_blocking_with_api(
-                                api_base,
-                                token,
-                                chat_id,
-                                &format!("Failed: {}", escape_html(&error)),
-                            ),
+                            Ok(_) => {
+                                send_telegram_msg_blocking_with_api(
+                                    api_base,
+                                    token,
+                                    chat_id,
+                                    &format!("{}: {}", cmd.trim_start_matches('/'), arg.trim()),
+                                );
+                            }
+                            Err(error) => {
+                                send_telegram_msg_blocking_with_api(
+                                    api_base,
+                                    token,
+                                    chat_id,
+                                    &format!("Failed: {}", escape_html(&error)),
+                                );
+                            }
                         }
                     }
                     _ => {}
@@ -895,18 +901,22 @@ fn handle_telegram_command(
                     },
                     None,
                 )) {
-                    Ok(_) => send_telegram_msg_blocking_with_api(
-                        api_base,
-                        token,
-                        chat_id,
-                        &format!("Retry requested: {}", arg.trim()),
-                    ),
-                    Err(error) => send_telegram_msg_blocking_with_api(
-                        api_base,
-                        token,
-                        chat_id,
-                        &format!("Failed: {}", escape_html(&error.message)),
-                    ),
+                    Ok(_) => {
+                        send_telegram_msg_blocking_with_api(
+                            api_base,
+                            token,
+                            chat_id,
+                            &format!("Retry requested: {}", arg.trim()),
+                        );
+                    }
+                    Err(error) => {
+                        send_telegram_msg_blocking_with_api(
+                            api_base,
+                            token,
+                            chat_id,
+                            &format!("Failed: {}", escape_html(&error.message)),
+                        );
+                    }
                 }
             }
             "/queue-start" | "/queue-stop" => {
@@ -932,25 +942,29 @@ fn handle_telegram_command(
                 match rt.block_on(crate::daemon::routes::commands::execute_legacy(
                     state, command, None,
                 )) {
-                    Ok(_) => send_telegram_msg_blocking_with_api(
-                        api_base,
-                        token,
-                        chat_id,
-                        &format!(
-                            "Queue {}: {queue_id}",
-                            if cmd == "/queue-start" {
-                                "started"
-                            } else {
-                                "stopped"
-                            }
-                        ),
-                    ),
-                    Err(error) => send_telegram_msg_blocking_with_api(
-                        api_base,
-                        token,
-                        chat_id,
-                        &format!("Failed: {}", escape_html(&error.message)),
-                    ),
+                    Ok(_) => {
+                        send_telegram_msg_blocking_with_api(
+                            api_base,
+                            token,
+                            chat_id,
+                            &format!(
+                                "Queue {}: {queue_id}",
+                                if cmd == "/queue-start" {
+                                    "started"
+                                } else {
+                                    "stopped"
+                                }
+                            ),
+                        );
+                    }
+                    Err(error) => {
+                        send_telegram_msg_blocking_with_api(
+                            api_base,
+                            token,
+                            chat_id,
+                            &format!("Failed: {}", escape_html(&error.message)),
+                        );
+                    }
                 }
             }
             "/move" | "/priority" => {
@@ -1002,18 +1016,22 @@ fn handle_telegram_command(
                 match rt.block_on(crate::daemon::routes::commands::execute_legacy(
                     state, command, None,
                 )) {
-                    Ok(_) => send_telegram_msg_blocking_with_api(
-                        api_base,
-                        token,
-                        chat_id,
-                        &format!("Updated {task_id}."),
-                    ),
-                    Err(error) => send_telegram_msg_blocking_with_api(
-                        api_base,
-                        token,
-                        chat_id,
-                        &format!("Failed: {}", escape_html(&error.message)),
-                    ),
+                    Ok(_) => {
+                        send_telegram_msg_blocking_with_api(
+                            api_base,
+                            token,
+                            chat_id,
+                            &format!("Updated {task_id}."),
+                        );
+                    }
+                    Err(error) => {
+                        send_telegram_msg_blocking_with_api(
+                            api_base,
+                            token,
+                            chat_id,
+                            &format!("Failed: {}", escape_html(&error.message)),
+                        );
+                    }
                 }
             }
             _ => {

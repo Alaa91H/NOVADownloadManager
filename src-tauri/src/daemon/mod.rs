@@ -407,7 +407,7 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                 }
                 let active_profile = profile_manager.active_profile();
                 let profile_rate_limit = active_profile.rate_limit_kbps.unwrap_or(0);
-                let mut bandwidth_manager =
+                let bandwidth_manager =
                     crate::daemon::engine::bandwidth::BandwidthManager::default();
                 bandwidth_manager.set_global_limit(profile_rate_limit);
                 let priority_queue =

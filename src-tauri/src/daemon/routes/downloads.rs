@@ -764,7 +764,7 @@ pub(crate) async fn create_native_media_playlist_service(
 
         pending.spawn(async move {
             let result: Result<Task, String> = async {
-                let mut item_body = CreateDownloadBody {
+                let item_body = CreateDownloadBody {
                     url: Some(url.clone()),
                     name: Some(title.clone()),
                     file_type: Some(media_file_type.to_owned()),
