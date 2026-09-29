@@ -5,9 +5,12 @@ use std::time::Duration;
 
 use nova_core_model::{RecoveryCheckpoint, ResourceIdentity};
 
+use crate::daemon::engine::event_bus::PersistedEventLog;
 use crate::daemon::state::{AppState, SharedState};
 use crate::daemon::types::{Task, TaskState};
 use crate::lock_or_err;
+
+const PERSISTED_STATE_VERSION: u32 = 5;
 
 /// On-disk snapshot of everything needed to rebuild the download list after
 /// a restart: the last known task state plus first-party native/libcurl
@@ -48,6 +51,14 @@ pub struct PersistedState {
     pub telegram_last_update_id: i64,
     #[serde(default)]
     pub scheduler_rules: Vec<crate::daemon::engine::scheduler::SchedulerRule>,
+    /// User-created profiles; built-ins are recreated from the current binary.
+    #[serde(default)]
+    pub custom_profiles: Vec<crate::daemon::engine::profiles::DownloadProfile>,
+    #[serde(default)]
+    pub active_profile_id: Option<String>,
+    /// Bounded, credential-redacted event history with stable cursor IDs.
+    #[serde(default)]
+    pub event_log: PersistedEventLog,
     /// Daemon-owned queue catalog. Empty queues are preserved across restarts.
     #[serde(default)]
     pub queue_catalog: Vec<serde_json::Value>,
@@ -158,8 +169,20 @@ fn sanitize_direct_options(
 fn read_snapshot(path: &Path) -> Result<PersistedState, String> {
     let raw = std::fs::read_to_string(path)
         .map_err(|error| format!("could not read {}: {error}", path.display()))?;
-    serde_json::from_str(&raw)
-        .map_err(|error| format!("could not parse {}: {error}", path.display()))
+    let mut snapshot: PersistedState = serde_json::from_str(&raw)
+        .map_err(|error| format!("could not parse {}: {error}", path.display()))?;
+    if snapshot.version > PERSISTED_STATE_VERSION {
+        return Err(format!(
+            "{} uses unsupported state version {} (current version is {})",
+            path.display(),
+            snapshot.version,
+            PERSISTED_STATE_VERSION
+        ));
+    }
+    // Fields added by each snapshot version use serde defaults, so migration
+    // is a monotonic schema stamp after validating the file is not newer.
+    snapshot.version = PERSISTED_STATE_VERSION;
+    Ok(snapshot)
 }
 
 pub fn load(data_dir: &str) -> PersistedState {
@@ -348,13 +371,34 @@ fn build_snapshot(state: &AppState) -> PersistedState {
         )
     };
     let scheduler_rules = state.scheduler.rules();
+    let custom_profiles: Vec<_> = state
+        .profile_manager
+        .list_profiles()
+        .into_iter()
+        .filter(|profile| {
+            !crate::daemon::engine::profiles::DownloadProfile::is_builtin_id(&profile.id)
+        })
+        .collect();
+    let active_profile_id = Some(state.profile_manager.active_profile().id);
+    let mut event_log = state.event_bus.snapshot();
+    for persisted_event in &mut event_log.events {
+        let Ok(mut serialized) = serde_json::to_value(&persisted_event.event) else {
+            continue;
+        };
+        if let Some(data) = serialized.get_mut("data") {
+            crate::daemon::routes::commands::redact_event_data(data, None, &state.api_token);
+        }
+        if let Ok(redacted) = serde_json::from_value(serialized) {
+            persisted_event.event = redacted;
+        }
+    }
     // queue_catalog is intentionally acquired only after the transfer locks above
     // have been released, so queue CRUD cannot participate in transfer lock cycles.
     let queue_catalog = lock_or_err!(state.queue_catalog).clone();
     let stats = lock_or_err!(state.download_stats).clone();
 
     PersistedState {
-        version: 4,
+        version: PERSISTED_STATE_VERSION,
         tasks,
         recovery_checkpoints,
         native_media_requests,
@@ -366,6 +410,9 @@ fn build_snapshot(state: &AppState) -> PersistedState {
         resume_requires_reauth,
         telegram_last_update_id,
         scheduler_rules,
+        custom_profiles,
+        active_profile_id,
+        event_log,
         queue_catalog,
         stats,
     }
@@ -562,6 +609,7 @@ pub(crate) mod tests {
             engine_capabilities_probe: std::sync::Mutex::new(()),
             task_generation: AtomicU64::new(0),
             task_list_cache: RwLock::new(None),
+            command_bus: crate::daemon::command_bus::CommandBus::default(),
             event_bus: crate::daemon::engine::event_bus::EventBus::new_with_capacity(100),
             priority_queue: crate::daemon::engine::priority_queue::PriorityBandwidthQueue::new(0),
             bandwidth_manager: crate::daemon::engine::bandwidth::BandwidthManager::default(),
@@ -666,7 +714,7 @@ pub(crate) mod tests {
         let loaded = load(&dir_str);
 
         assert_eq!(loaded.tasks.len(), 2);
-        assert_eq!(loaded.version, 4);
+        assert_eq!(loaded.version, PERSISTED_STATE_VERSION);
         assert_eq!(loaded.queue_catalog, vec![queue]);
         let checkpoint = loaded
             .recovery_checkpoints

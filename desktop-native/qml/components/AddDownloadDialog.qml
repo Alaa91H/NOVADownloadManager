@@ -298,7 +298,9 @@ Dialog {
                 text: root.t("add.queue")
                 Accessible.name: text
                 KeyNavigation.tab: downloadNowButton
-                enabled: !root.submitting && urlField.text.trim().length > 0
+                enabled: !root.submitting
+                    && root.api.controlPlaneCommandSupported("addDownload")
+                    && urlField.text.trim().length > 0
                 onClicked: root.submit(false)
             }
 
@@ -307,7 +309,9 @@ Dialog {
                 text: root.submitting ? root.t("add.adding") : root.t("add.downloadNow")
                 Accessible.name: text
                 KeyNavigation.tab: urlField
-                enabled: !root.submitting && urlField.text.trim().length > 0
+                enabled: !root.submitting
+                    && root.api.controlPlaneCommandSupported("addDownload")
+                    && urlField.text.trim().length > 0
 
                 background: Rectangle {
                     radius: Theme.radiusMedium

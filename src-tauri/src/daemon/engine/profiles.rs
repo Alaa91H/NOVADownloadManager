@@ -37,6 +37,26 @@ pub struct RetryProfileConfig {
     pub jitter: bool,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProfileRemovalError {
+    BuiltinProfile,
+    NotFound,
+    StoreUnavailable,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProfileWriteError {
+    InvalidId,
+    InvalidName,
+    InvalidDescription,
+    InvalidConnections,
+    InvalidAdaptiveThresholds,
+    InvalidRetryPolicy,
+    InvalidSegmentSize,
+    BuiltinProfile,
+    StoreUnavailable,
+}
+
 impl DownloadProfile {
     pub const BUILTIN_IDS: [&'static str; 4] =
         ["maximum-speed", "balanced", "economical", "background"];
@@ -181,7 +201,12 @@ impl DownloadProfile {
         // to the live connection manager. This keeps the profile endpoint and
         // runtime behavior aligned even for zero, negative, NaN, or infinite
         // values supplied by an external client.
-        let max_connections = self.max_connections.max(1);
+        // Profiles arrive from the Control Plane and can outlive changes to
+        // built-in defaults. Keep their resolved ceilings inside the same
+        // hard per-task bound enforced by the download engine.
+        let max_connections = self
+            .max_connections
+            .clamp(1, super::config::MAX_CONNECTIONS_PER_DOWNLOAD);
         let min_connections = self.default_connections.clamp(1, max_connections);
         let threshold_to_bps = |value: f64, multiplier: f64| {
             if value.is_finite() && value > 0.0 {
@@ -214,6 +239,90 @@ impl DownloadProfile {
             backoff_multiplier: self.retry_policy.backoff_multiplier,
             jitter: self.retry_policy.jitter,
         }
+    }
+
+    pub fn validate(&self) -> Result<(), ProfileWriteError> {
+        if self.id.trim().is_empty() || self.id.len() > 128 || self.id.chars().any(char::is_control)
+        {
+            return Err(ProfileWriteError::InvalidId);
+        }
+        if self.name.trim().is_empty()
+            || self.name.len() > 160
+            || self.name.chars().any(char::is_control)
+        {
+            return Err(ProfileWriteError::InvalidName);
+        }
+        if self.description.len() > 4096
+            || self
+                .description
+                .chars()
+                .any(|character| character.is_control() && !matches!(character, '\n' | '\r' | '\t'))
+        {
+            return Err(ProfileWriteError::InvalidDescription);
+        }
+        if self.default_connections == 0
+            || self.max_connections < self.default_connections
+            || self.max_connections > super::config::MAX_CONNECTIONS_PER_DOWNLOAD
+        {
+            return Err(ProfileWriteError::InvalidConnections);
+        }
+        if !self.adaptive_config.speed_high_threshold_mbps.is_finite()
+            || self.adaptive_config.speed_high_threshold_mbps < 0.0
+            || !self.adaptive_config.speed_low_threshold_kbps.is_finite()
+            || self.adaptive_config.speed_low_threshold_kbps < 0.0
+        {
+            return Err(ProfileWriteError::InvalidAdaptiveThresholds);
+        }
+        if self.retry_policy.max_retries > 100
+            || self.retry_policy.base_delay_secs > 3600
+            || self.retry_policy.max_delay_secs > 86_400
+            || self.retry_policy.base_delay_secs > self.retry_policy.max_delay_secs
+            || !self.retry_policy.backoff_multiplier.is_finite()
+            || !(1.0..=10.0).contains(&self.retry_policy.backoff_multiplier)
+        {
+            return Err(ProfileWriteError::InvalidRetryPolicy);
+        }
+        if self.segment_size_bytes == Some(0) {
+            return Err(ProfileWriteError::InvalidSegmentSize);
+        }
+        Ok(())
+    }
+
+    /// Bound persisted values from earlier NOVA versions before they become
+    /// active policy. Identity and descriptive fields are validated afterward;
+    /// numeric policy is normalized to the current runtime's supported range.
+    pub fn normalize_persisted(&mut self) {
+        self.max_connections = self
+            .max_connections
+            .clamp(1, super::config::MAX_CONNECTIONS_PER_DOWNLOAD);
+        self.default_connections = self.default_connections.clamp(1, self.max_connections);
+        self.adaptive_config.speed_high_threshold_mbps =
+            normalize_threshold(self.adaptive_config.speed_high_threshold_mbps);
+        self.adaptive_config.speed_low_threshold_kbps =
+            normalize_threshold(self.adaptive_config.speed_low_threshold_kbps);
+        self.retry_policy.max_retries = self.retry_policy.max_retries.min(100);
+        self.retry_policy.base_delay_secs = self.retry_policy.base_delay_secs.min(3600);
+        self.retry_policy.max_delay_secs = self
+            .retry_policy
+            .max_delay_secs
+            .min(86_400)
+            .max(self.retry_policy.base_delay_secs);
+        self.retry_policy.backoff_multiplier = if self.retry_policy.backoff_multiplier.is_finite() {
+            self.retry_policy.backoff_multiplier.clamp(1.0, 10.0)
+        } else {
+            2.0
+        };
+        if self.segment_size_bytes == Some(0) {
+            self.segment_size_bytes = None;
+        }
+    }
+}
+
+fn normalize_threshold(value: f64) -> f64 {
+    if value.is_finite() && value >= 0.0 {
+        value
+    } else {
+        0.0
     }
 }
 
@@ -291,33 +400,63 @@ impl ProfileManager {
     /// Add or replace a custom profile. Built-in profile ids are immutable so
     /// an HTTP client cannot overwrite the safe defaults used as fallbacks.
     pub fn add_profile(&self, profile: DownloadProfile) -> bool {
-        if profile.id.trim().is_empty() || DownloadProfile::is_builtin_id(&profile.id) {
-            return false;
+        self.try_add_profile(profile).is_ok()
+    }
+
+    pub fn try_add_profile(&self, profile: DownloadProfile) -> Result<(), ProfileWriteError> {
+        profile.validate()?;
+        if DownloadProfile::is_builtin_id(&profile.id) {
+            return Err(ProfileWriteError::BuiltinProfile);
         }
-        if let Ok(mut profiles) = self.profiles.lock() {
-            profiles.insert(profile.id.clone(), profile);
-            true
-        } else {
-            false
-        }
+        let mut profiles = self
+            .profiles
+            .lock()
+            .map_err(|_| ProfileWriteError::StoreUnavailable)?;
+        profiles.insert(profile.id.clone(), profile);
+        Ok(())
+    }
+
+    pub fn restore_profile(&self, mut profile: DownloadProfile) -> Result<(), ProfileWriteError> {
+        profile.normalize_persisted();
+        self.try_add_profile(profile)
     }
 
     pub fn remove_profile(&self, id: &str) -> bool {
+        self.remove_profile_checked(id).is_ok()
+    }
+
+    /// Remove a custom profile and, when it was active, atomically switch the
+    /// manager back to the built-in balanced profile. The returned profile is
+    /// the one whose runtime policy must be applied by the command adapter.
+    pub fn remove_profile_checked(
+        &self,
+        id: &str,
+    ) -> Result<Option<DownloadProfile>, ProfileRemovalError> {
         if DownloadProfile::is_builtin_id(id) {
-            return false;
+            return Err(ProfileRemovalError::BuiltinProfile);
         }
         // Keep lock ordering consistent with active_profile()/set_active().
-        let Ok(mut active) = self.active_profile.lock() else {
-            return false;
-        };
-        let Ok(mut profiles) = self.profiles.lock() else {
-            return false;
-        };
-        let removed = profiles.remove(id).is_some();
-        if removed && active.as_str() == id {
-            *active = "balanced".to_owned();
+        let mut active = self
+            .active_profile
+            .lock()
+            .map_err(|_| ProfileRemovalError::StoreUnavailable)?;
+        let mut profiles = self
+            .profiles
+            .lock()
+            .map_err(|_| ProfileRemovalError::StoreUnavailable)?;
+        if profiles.remove(id).is_none() {
+            return Err(ProfileRemovalError::NotFound);
         }
-        removed
+        if active.as_str() == id {
+            *active = "balanced".to_owned();
+            return Ok(Some(
+                profiles
+                    .get("balanced")
+                    .cloned()
+                    .unwrap_or_else(DownloadProfile::balanced),
+            ));
+        }
+        Ok(None)
     }
 }
 

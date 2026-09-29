@@ -7,6 +7,15 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod control_plane;
+pub use control_plane::{
+    BatchMode, CapabilityStatus, CommandEnvelope, CommandScope, ControlCommand, ControlEvent,
+    ControlPlaneCapability, ControlQuery, Principal, QueryEnvelope, QueryPage, StructuredError,
+    TaskQueryFilter, CONTROL_PLANE_CAPABILITIES, CONTROL_PLANE_CAPABILITY_REGISTRY_VERSION,
+    CONTROL_PLANE_CONTRACT_VERSION, CONTROL_EVENT_SCHEMA_VERSION, CONTROL_EVENT_TYPES,
+    MAX_COMMAND_BATCH_SIZE,
+};
+
 /// Version of the runtime capability/lifecycle contract shared by desktop,
 /// browser-extension and mobile clients.
 pub const RUNTIME_CAPABILITIES_CONTRACT_VERSION: u32 = 1;

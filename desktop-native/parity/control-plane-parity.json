@@ -1,0 +1,142 @@
+{
+  "schemaVersion": 1,
+  "source": {
+    "commands": "crates/nova-core-model/src/control_plane.rs",
+    "queries": "src-tauri/src/daemon/engine_capabilities.rs"
+  },
+  "requiredClients": ["desktop", "android", "cli", "telegram"],
+  "requiredClientsByCommand": {
+    "addDownload": ["desktop", "android", "cli", "telegram", "browserExtension"],
+    "batch.atomic": []
+  },
+  "clientCoverage": {
+    "desktop": [
+      "addDownload", "addMediaDownload", "addMediaPlaylist", "addTorrent",
+      "pauseTask", "resumeTask", "retryTask", "updateTask", "redownloadTask",
+      "deleteTask", "moveTask", "setTaskPriority", "startQueue", "createQueue",
+      "updateQueue", "deleteQueue", "reorderQueues", "reorderQueueTasks", "stopQueue",
+      "setActiveProfile", "addSchedule", "updateSchedule", "deleteSchedule",
+      "setSchedulerPowerCommands", "batch.bestEffort"
+    ],
+    "android": [],
+    "cli": [
+      "addDownload", "addMediaDownload", "addMediaPlaylist", "addTorrent",
+      "pauseTask", "resumeTask", "retryTask", "updateTask", "redownloadTask",
+      "deleteTask", "moveTask", "setTaskPriority", "startQueue", "createQueue",
+      "updateQueue", "deleteQueue", "reorderQueues", "reorderQueueTasks", "stopQueue",
+      "setActiveProfile", "upsertProfile", "deleteProfile", "addRule", "deleteRule",
+      "addSchedule", "updateSchedule", "deleteSchedule", "setSchedulerPowerCommands",
+      "batch.bestEffort"
+    ],
+    "telegram": [
+      "addDownload", "addMediaDownload", "addMediaPlaylist", "addTorrent",
+      "pauseTask", "resumeTask", "retryTask", "deleteTask", "moveTask",
+      "setTaskPriority", "startQueue", "createQueue", "updateQueue", "deleteQueue",
+      "reorderQueues", "reorderQueueTasks", "stopQueue", "setActiveProfile",
+      "upsertProfile", "deleteProfile", "addRule", "deleteRule", "addSchedule",
+      "updateSchedule", "deleteSchedule", "setSchedulerPowerCommands", "batch.bestEffort"
+    ],
+    "browserExtension": ["addDownload"]
+  },
+  "queryCoverage": {
+    "desktop": ["listQueues", "listProfiles", "listSchedules"],
+    "android": [],
+    "cli": [
+      "capabilities", "listQueues", "listProfiles", "getProfile", "listRules",
+      "listSchedules", "getTask", "listTasks", "diagnostics", "recentLogs", "events"
+    ],
+    "telegram": [
+      "capabilities", "listQueues", "listProfiles", "listRules", "listSchedules", "listTasks"
+    ]
+  },
+  "capabilityLifecycle": {
+    "addDownload": "inProgress",
+    "addMediaDownload": "inProgress",
+    "addMediaPlaylist": "inProgress",
+    "addTorrent": "inProgress",
+    "pauseTask": "inProgress",
+    "resumeTask": "inProgress",
+    "retryTask": "inProgress",
+    "updateTask": "inProgress",
+    "redownloadTask": "inProgress",
+    "deleteTask": "inProgress",
+    "moveTask": "inProgress",
+    "setTaskPriority": "inProgress",
+    "startQueue": "inProgress",
+    "createQueue": "inProgress",
+    "updateQueue": "inProgress",
+    "deleteQueue": "inProgress",
+    "reorderQueues": "inProgress",
+    "reorderQueueTasks": "inProgress",
+    "stopQueue": "inProgress",
+    "setActiveProfile": "inProgress",
+    "upsertProfile": "inProgress",
+    "deleteProfile": "inProgress",
+    "addRule": "inProgress",
+    "deleteRule": "inProgress",
+    "addSchedule": "inProgress",
+    "updateSchedule": "inProgress",
+    "deleteSchedule": "inProgress",
+    "setSchedulerPowerCommands": "inProgress",
+    "batch.bestEffort": "inProgress",
+    "batch.atomic": "unavailable"
+  },
+  "queryLifecycle": {
+    "capabilities": "inProgress",
+    "listQueues": "inProgress",
+    "listProfiles": "inProgress",
+    "getProfile": "inProgress",
+    "listRules": "inProgress",
+    "listSchedules": "inProgress",
+    "getTask": "inProgress",
+    "listTasks": "inProgress",
+    "diagnostics": "inProgress",
+    "recentLogs": "inProgress",
+    "events": "inProgress"
+  },
+  "eventCoverage": {
+    "desktop": [],
+    "android": [],
+    "cli": [
+      "download.started", "download.progress", "download.completed", "download.retrying",
+      "download.failed", "download.paused", "download.resumed", "download.cancelled",
+      "download.segment_stolen", "download.connections_adjusted", "download.retry_scheduled",
+      "download.checksum_verified", "download.mirror_found", "download.speed_changed",
+      "queue.changed", "download.bandwidth_allocated", "scheduler.triggered", "rule.applied",
+      "profile.switched"
+    ],
+    "telegram": ["download.completed", "download.failed"],
+    "browserExtension": []
+  },
+  "eventLifecycle": {
+    "download.started": "inProgress",
+    "download.progress": "inProgress",
+    "download.completed": "inProgress",
+    "download.retrying": "inProgress",
+    "download.failed": "inProgress",
+    "download.paused": "inProgress",
+    "download.resumed": "inProgress",
+    "download.cancelled": "inProgress",
+    "download.segment_stolen": "inProgress",
+    "download.connections_adjusted": "inProgress",
+    "download.retry_scheduled": "inProgress",
+    "download.checksum_verified": "inProgress",
+    "download.mirror_found": "inProgress",
+    "download.speed_changed": "inProgress",
+    "queue.changed": "inProgress",
+    "download.bandwidth_allocated": "inProgress",
+    "scheduler.triggered": "inProgress",
+    "rule.applied": "inProgress",
+    "profile.switched": "inProgress"
+  },
+  "evidence": {
+    "desktop": ["desktop-native/src/api/NovaApiClient.cpp"],
+    "android": ["crates/nova-mobile-ffi/src/lib.rs", "android/app/src/main/java/com/nova/downloadmanager/downloads/NovaTransferCore.kt"],
+    "cli": ["crates/nova-cli/src/main.rs"],
+    "telegram": ["src-tauri/src/daemon/telegram.rs"],
+    "browserExtension": ["browser-extension/src/bridge/bridge-manager.ts", "src-tauri/src/daemon/routes/extension.rs"]
+  },
+  "completeEvidence": {},
+  "completeQueryEvidence": {},
+  "completeEventEvidence": {}
+}

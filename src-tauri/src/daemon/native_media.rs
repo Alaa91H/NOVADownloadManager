@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use nova_download_core::{fetch_http_bytes_with_context, HttpRequestContext, TransferControl};
+use nova_media_core::processing::MediaProcessingControl;
 use nova_media_core::{
     assemble_ordered_parts, download_youtube_plan_controlled, mux_mp4_tracks_controlled,
     resolve_youtube_pending_formats, select_media_stream, select_youtube_download_plan,
@@ -17,14 +18,12 @@ use nova_media_core::{
 };
 use nova_stream_core::{
     build_dash_live_refresh, build_dash_representation_plan, build_hls_live_refresh,
-    build_hls_media_plan, parse_dash, parse_hls, DashLiveCursor,
-    DashManifest, DashTrackKind, HlsLiveCursor, HlsPlaylistKind, HlsRenditionKind,
-    HlsTransferUnitKind,
+    build_hls_media_plan, parse_dash, parse_hls, DashLiveCursor, DashManifest, DashTrackKind,
+    HlsLiveCursor, HlsPlaylistKind, HlsRenditionKind, HlsTransferUnitKind,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
-use nova_media_core::processing::MediaProcessingControl;
 
 use crate::daemon::browser_cookies::{load_browser_cookie_header, validate_browser_cookie_source};
 use crate::daemon::engine::extractor::{EngineStatus, Extractor, ValidateError};
@@ -32,8 +31,7 @@ use crate::daemon::engine::priority_queue::{DownloadPriority, QueueEntry};
 use crate::daemon::postprocess::{
     embed_subtitles_with_native_codecs, transcode_with_native_codecs,
     validate_native_transcode_request, MediaSubtitleEmbedRequest, MediaSubtitleInput,
-    MediaTranscodeRequest, PostProcessError, MEDIA_SUBTITLE_EMBED_OPTION,
-    MEDIA_TRANSCODE_OPTION,
+    MediaTranscodeRequest, PostProcessError, MEDIA_SUBTITLE_EMBED_OPTION, MEDIA_TRANSCODE_OPTION,
 };
 use crate::daemon::state::SharedState;
 use crate::daemon::types::{
@@ -306,34 +304,33 @@ pub async fn create_native_media_task(
         ResolvedNativeMedia::Manifest(media) => media.stream.container.as_deref(),
         ResolvedNativeMedia::SeparateTracks(media) => Some(media.output_container.as_str()),
     };
-    let wants_transcoding = media_transcoding_requested(
-        task_body.media_options.as_ref(),
-        source_container,
-    )?;
+    let wants_transcoding =
+        media_transcoding_requested(task_body.media_options.as_ref(), source_container)?;
     if wants_transcoding {
-        let (kind, duration_millis, input_container, source_video_codec, source_audio_codec) = match &resolved {
-            ResolvedNativeMedia::Direct(media) => (
-                media.kind,
-                media.descriptor.metadata.duration_millis,
-                media.container.as_deref(),
-                media.video_codec.as_deref(),
-                media.audio_codec.as_deref(),
-            ),
-            ResolvedNativeMedia::Manifest(media) => (
-                media.stream.kind,
-                media.descriptor.metadata.duration_millis,
-                media.stream.container.as_deref(),
-                media.stream.video_codec.as_deref(),
-                media.stream.audio_codec.as_deref(),
-            ),
-            ResolvedNativeMedia::SeparateTracks(media) => (
-                nova_media_core::MediaTrackKind::AudioVideo,
-                None,
-                Some(media.output_container.as_str()),
-                media.video_codec.as_deref(),
-                media.audio_codec.as_deref(),
-            ),
-        };
+        let (kind, duration_millis, input_container, source_video_codec, source_audio_codec) =
+            match &resolved {
+                ResolvedNativeMedia::Direct(media) => (
+                    media.kind,
+                    media.descriptor.metadata.duration_millis,
+                    media.container.as_deref(),
+                    media.video_codec.as_deref(),
+                    media.audio_codec.as_deref(),
+                ),
+                ResolvedNativeMedia::Manifest(media) => (
+                    media.stream.kind,
+                    media.descriptor.metadata.duration_millis,
+                    media.stream.container.as_deref(),
+                    media.stream.video_codec.as_deref(),
+                    media.stream.audio_codec.as_deref(),
+                ),
+                ResolvedNativeMedia::SeparateTracks(media) => (
+                    nova_media_core::MediaTrackKind::AudioVideo,
+                    None,
+                    Some(media.output_container.as_str()),
+                    media.video_codec.as_deref(),
+                    media.audio_codec.as_deref(),
+                ),
+            };
         validate_requested_native_transcode(
             task_body.media_options.as_ref(),
             kind,
@@ -348,7 +345,10 @@ pub async fn create_native_media_task(
             let job = nova_media_core::processing::NativeMediaMuxJob {
                 video_source: PathBuf::from("native-video-input"),
                 audio_source: PathBuf::from("native-audio-input"),
-                destination: PathBuf::from(format!("native-media-output.{}", separate.output_container)),
+                destination: PathBuf::from(format!(
+                    "native-media-output.{}",
+                    separate.output_container
+                )),
                 video_container: separate.video_container.clone(),
                 audio_container: separate.audio_container.clone(),
                 video_codec: separate.video_codec.clone(),
@@ -424,7 +424,9 @@ fn apply_native_manifest_output_defaults(
             ));
         }
     });
-    let options = body.media_options.get_or_insert_with(MediaDownloadOptions::default);
+    let options = body
+        .media_options
+        .get_or_insert_with(MediaDownloadOptions::default);
     match mode {
         MediaSelectionMode::Audio => {
             if options
@@ -436,14 +438,10 @@ fn apply_native_manifest_output_defaults(
             }
         }
         MediaSelectionMode::Video => {
-            if options
-                .remux_format
-                .as_deref()
-                .is_none_or(|format| {
-                    format.trim().is_empty()
-                        || matches!(format.trim().to_ascii_lowercase().as_str(), "auto" | "best")
-                })
-            {
+            if options.remux_format.as_deref().is_none_or(|format| {
+                format.trim().is_empty()
+                    || matches!(format.trim().to_ascii_lowercase().as_str(), "auto" | "best")
+            }) {
                 options.remux_format = Some(default_container.clone());
             }
         }
@@ -481,12 +479,9 @@ async fn create_native_direct_task(
     let mode = native_selection_preferences(body.media_options.as_ref())
         .map_err(NativeMediaTaskError::InvalidRequest)?
         .mode;
-    let output_extension = requested_output_extension(
-        body.media_options.as_ref(),
-        mode,
-        container.as_deref(),
-    )
-    .map_err(NativeMediaTaskError::InvalidRequest)?;
+    let output_extension =
+        requested_output_extension(body.media_options.as_ref(), mode, container.as_deref())
+            .map_err(NativeMediaTaskError::InvalidRequest)?;
     let mut direct = body.clone();
     direct.url = Some(resolved.url);
     direct.media_options = None;
@@ -498,7 +493,10 @@ async fn create_native_direct_task(
         direct.name.as_deref(),
     )
     .map_err(NativeMediaTaskError::InvalidRequest)?;
-    direct.name = Some(ensure_native_output_name(&base_name, Some(&output_extension)));
+    direct.name = Some(ensure_native_output_name(
+        &base_name,
+        Some(&output_extension),
+    ));
     set_media_save_path_extension(&mut direct.save_path, &output_extension);
     direct.file_type = Some(output_extension.clone());
     if direct.size_bytes.unwrap_or(0) == 0 {
@@ -622,7 +620,8 @@ fn create_native_manifest_task(
         std::fs::create_dir_all(parent)
             .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
     }
-    let sidecars = prepare_native_sidecars(body, &resolved.descriptor, &resolved.chapters, &output_path)?;
+    let sidecars =
+        prepare_native_sidecars(body, &resolved.descriptor, &resolved.chapters, &output_path)?;
     attach_native_subtitle_embed_plan(&mut task_body, &sidecars, &output_path)?;
 
     let id = Uuid::new_v4().to_string();
@@ -911,18 +910,15 @@ pub fn start_native_media_process(state: &SharedState, id: &str) {
             return;
         }
         if current == Some(TaskState::Queued) {
-            let engine_status = if job.live_recording
-                && job.finish_requested.load(Ordering::Acquire)
+            let engine_status =
+                if job.live_recording && job.finish_requested.load(Ordering::Acquire) {
+                    "live-recording-finishing"
+                } else {
+                    "starting"
+                };
+            if let Err(error) =
+                transition_task_state(&mut job.task, TaskState::Preparing, engine_status)
             {
-                "live-recording-finishing"
-            } else {
-                "starting"
-            };
-            if let Err(error) = transition_task_state(
-                &mut job.task,
-                TaskState::Preparing,
-                engine_status,
-            ) {
                 log::error!("Native media task {id} could not start: {error}");
                 return;
             }
@@ -947,7 +943,15 @@ pub fn start_native_media_process(state: &SharedState, id: &str) {
         ))
     };
 
-    let Some((generation, cancel_token, finish_requested, run_generation, request, task, size_bytes)) = prepared
+    let Some((
+        generation,
+        cancel_token,
+        finish_requested,
+        run_generation,
+        request,
+        task,
+        size_bytes,
+    )) = prepared
     else {
         return;
     };
@@ -1151,10 +1155,16 @@ fn run_native_media_worker(
                                 &state,
                                 request.media_options.as_ref(),
                                 &output_path,
-                                matches!(kind, nova_media_core::MediaTrackKind::Video | nova_media_core::MediaTrackKind::AudioVideo)
-                                    && mode != MediaSelectionMode::Audio,
-                                matches!(kind, nova_media_core::MediaTrackKind::Audio | nova_media_core::MediaTrackKind::AudioVideo)
-                                    || mode == MediaSelectionMode::Audio,
+                                matches!(
+                                    kind,
+                                    nova_media_core::MediaTrackKind::Video
+                                        | nova_media_core::MediaTrackKind::AudioVideo
+                                ) && mode != MediaSelectionMode::Audio,
+                                matches!(
+                                    kind,
+                                    nova_media_core::MediaTrackKind::Audio
+                                        | nova_media_core::MediaTrackKind::AudioVideo
+                                ) || mode == MediaSelectionMode::Audio,
                                 resolved.descriptor.metadata.duration_millis,
                                 staged
                                     .input_container
@@ -1276,9 +1286,10 @@ fn embed_native_output_subtitles(
     else {
         return Ok(None);
     };
-    let request: MediaSubtitleEmbedRequest = serde_json::from_value(value.clone()).map_err(|error| {
-        PostProcessError::InvalidInput(format!("invalid native subtitle plan: {error}"))
-    })?;
+    let request: MediaSubtitleEmbedRequest =
+        serde_json::from_value(value.clone()).map_err(|error| {
+            PostProcessError::InvalidInput(format!("invalid native subtitle plan: {error}"))
+        })?;
     if request.source_path.as_path() != output_path {
         return Err(PostProcessError::InvalidInput(
             "native subtitle plan does not match its media output path".to_owned(),
@@ -1574,42 +1585,38 @@ where
         .map_err(|error| NativeMediaTaskError::InvalidRequest(error.to_string()))?;
 
     match resolved.stream.protocol {
-        MediaProtocol::Hls => {
-            stage_hls_stream(
-                &resolved.stream.url,
-                &context,
-                staging_dir,
-                connections,
-                resolved.mode,
-                resolved.max_height,
-                &resolved.output_container,
-                resolved.stream.kind,
-                resolved.stream.video_codec.clone(),
-                resolved.stream.audio_codec.clone(),
-                options,
-                should_cancel,
-                should_finish,
-                on_live_recording,
-                on_progress,
-            )
-        }
-        MediaProtocol::Dash => {
-            stage_dash_stream(
-                &resolved.stream.url,
-                &context,
-                staging_dir,
-                connections,
-                resolved.mode,
-                resolved.max_height,
-                &resolved.output_container,
-                resolved.stream.kind,
-                options,
-                should_cancel,
-                should_finish,
-                on_live_recording,
-                on_progress,
-            )
-        }
+        MediaProtocol::Hls => stage_hls_stream(
+            &resolved.stream.url,
+            &context,
+            staging_dir,
+            connections,
+            resolved.mode,
+            resolved.max_height,
+            &resolved.output_container,
+            resolved.stream.kind,
+            resolved.stream.video_codec.clone(),
+            resolved.stream.audio_codec.clone(),
+            options,
+            should_cancel,
+            should_finish,
+            on_live_recording,
+            on_progress,
+        ),
+        MediaProtocol::Dash => stage_dash_stream(
+            &resolved.stream.url,
+            &context,
+            staging_dir,
+            connections,
+            resolved.mode,
+            resolved.max_height,
+            &resolved.output_container,
+            resolved.stream.kind,
+            options,
+            should_cancel,
+            should_finish,
+            on_live_recording,
+            on_progress,
+        ),
         MediaProtocol::Http | MediaProtocol::Https => {
             Err(NativeMediaTaskError::UnsupportedFeature(
                 "direct stream reached manifest executor".to_owned(),
@@ -1746,10 +1753,7 @@ fn select_hls_variant(
         })
 }
 
-fn hls_codec_for_track(
-    codecs: &[String],
-    audio: bool,
-) -> Option<String> {
+fn hls_codec_for_track(codecs: &[String], audio: bool) -> Option<String> {
     codecs
         .iter()
         .flat_map(|value| value.split(','))
@@ -1851,9 +1855,8 @@ where
         }
     };
     let no_progress = |_: &nova_media_core::processing::MediaProcessingProgress| {};
-    let result =
-        nova_media_core::processing::mux_local_media_tracks(&job, &control, &no_progress)
-            .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+    let result = nova_media_core::processing::mux_local_media_tracks(&job, &control, &no_progress)
+        .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
     Ok((muxed_path, result.output_bytes))
 }
 
@@ -1971,11 +1974,8 @@ where
     let manifest = parse_hls(&master_url, &body)
         .map_err(|error| NativeMediaTaskError::Resolution(error.to_string()))?;
     if manifest.kind != HlsPlaylistKind::Master {
-        let media_context = nova_media_core::scope_http_request_context(
-            context,
-            manifest_url,
-            &master_url,
-        );
+        let media_context =
+            nova_media_core::scope_http_request_context(context, manifest_url, &master_url);
         return stage_hls_playlist(
             manifest,
             &master_url,
@@ -1998,9 +1998,9 @@ where
         .cloned()
         .ok_or_else(|| {
             NativeMediaTaskError::Resolution(match max_height {
-                Some(limit) => format!(
-                    "HLS master has no variant at or below the requested {limit}p quality"
-                ),
+                Some(limit) => {
+                    format!("HLS master has no variant at or below the requested {limit}p quality")
+                }
                 None => "HLS master has no variants".to_owned(),
             })
         })?;
@@ -2009,7 +2009,9 @@ where
         .as_deref()
         .and_then(|group| select_hls_audio_rendition(&manifest, group))
         .cloned();
-    let rendition_url = audio_rendition.as_ref().and_then(|rendition| rendition.uri.clone());
+    let rendition_url = audio_rendition
+        .as_ref()
+        .and_then(|rendition| rendition.uri.clone());
     let video_codec = hls_codec_for_track(&variant.codecs, false);
     let audio_codec = hls_codec_for_track(&variant.codecs, true);
 
@@ -2066,12 +2068,9 @@ where
 
     let variant_context =
         nova_media_core::scope_http_request_context(context, &master_url, &variant.uri);
-    let response = fetch_http_bytes_with_context(
-        &variant.uri,
-        &variant_context,
-        DEFAULT_MANIFEST_MAX_BYTES,
-    )
-    .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+    let response =
+        fetch_http_bytes_with_context(&variant.uri, &variant_context, DEFAULT_MANIFEST_MAX_BYTES)
+            .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
     let video_url = response.effective_url.clone();
     let body = String::from_utf8(response.body).map_err(|_| {
         NativeMediaTaskError::Resolution("HLS media playlist is not UTF-8".to_owned())
@@ -2083,11 +2082,8 @@ where
             "HLS variant URI did not resolve to a media playlist".to_owned(),
         ));
     }
-    let video_context = nova_media_core::scope_http_request_context(
-        &variant_context,
-        &variant.uri,
-        &video_url,
-    );
+    let video_context =
+        nova_media_core::scope_http_request_context(&variant_context, &variant.uri, &video_url);
 
     if mode == MediaSelectionMode::Video {
         if let Some(audio_url) = rendition_url.as_deref() {
@@ -2116,10 +2112,10 @@ where
                     audio_url,
                     &audio_media_url,
                 );
-                let video_container = hls_manifest_container(&video_manifest)
-                    .unwrap_or_else(|| "mpegts".to_owned());
-                let audio_container = hls_manifest_container(&audio_manifest)
-                    .unwrap_or_else(|| "mpegts".to_owned());
+                let video_container =
+                    hls_manifest_container(&video_manifest).unwrap_or_else(|| "mpegts".to_owned());
+                let audio_container =
+                    hls_manifest_container(&audio_manifest).unwrap_or_else(|| "mpegts".to_owned());
                 validate_manifest_mux_pair(
                     &video_container,
                     video_codec.as_deref(),
@@ -2220,9 +2216,11 @@ fn dash_representation_codec(
         .find(|codec| {
             let codec = codec.to_ascii_lowercase();
             if audio {
-                ["mp4a", "ac-3", "ec-3", "opus", "vorbis", "aac", "flac", "alac"]
-                    .iter()
-                    .any(|prefix| codec.starts_with(prefix))
+                [
+                    "mp4a", "ac-3", "ec-3", "opus", "vorbis", "aac", "flac", "alac",
+                ]
+                .iter()
+                .any(|prefix| codec.starts_with(prefix))
             } else {
                 ["avc", "hvc", "hev", "vp8", "vp9", "vp09", "av01", "theora"]
                     .iter()
@@ -2362,13 +2360,12 @@ fn dash_manifest_track_container(
         .periods
         .get(indices.0)
         .and_then(|period| period.adaptations.get(indices.1))
-        .ok_or_else(|| NativeMediaTaskError::Resolution("DASH adaptation disappeared".to_owned()))?;
-    let representation = adaptation
-        .representations
-        .get(indices.2)
         .ok_or_else(|| {
-            NativeMediaTaskError::Resolution("DASH representation disappeared".to_owned())
+            NativeMediaTaskError::Resolution("DASH adaptation disappeared".to_owned())
         })?;
+    let representation = adaptation.representations.get(indices.2).ok_or_else(|| {
+        NativeMediaTaskError::Resolution("DASH representation disappeared".to_owned())
+    })?;
     let plan = nova_stream_core::DashRepresentationPlan {
         representation_id: representation.id.clone(),
         track_kind: dash_representation_kind(adaptation, representation),
@@ -2395,18 +2392,15 @@ fn dash_representation_metadata(
         .periods
         .get(indices.0)
         .and_then(|period| period.adaptations.get(indices.1))
-        .ok_or_else(|| NativeMediaTaskError::Resolution("DASH adaptation disappeared".to_owned()))?;
+        .ok_or_else(|| {
+            NativeMediaTaskError::Resolution("DASH adaptation disappeared".to_owned())
+        })?;
     let representation = adaptation.representations.get(indices.2).ok_or_else(|| {
         NativeMediaTaskError::Resolution("DASH representation disappeared".to_owned())
     })?;
-    let plan = build_dash_representation_plan(
-        manifest,
-        manifest_url,
-        indices.0,
-        indices.1,
-        indices.2,
-    )
-    .map_err(|error| NativeMediaTaskError::Resolution(error.to_string()))?;
+    let plan =
+        build_dash_representation_plan(manifest, manifest_url, indices.0, indices.1, indices.2)
+            .map_err(|error| NativeMediaTaskError::Resolution(error.to_string()))?;
     Ok(DashRepresentationMetadata {
         kind: plan.track_kind,
         container: dash_track_container(adaptation, representation, &plan),
@@ -2430,23 +2424,19 @@ where
     F: Fn() -> bool + Sync,
     P: Fn(u64) + Sync,
 {
-    let plan = build_dash_representation_plan(
-        manifest,
-        manifest_url,
-        indices.0,
-        indices.1,
-        indices.2,
-    )
-    .map_err(|error| NativeMediaTaskError::Resolution(error.to_string()))?;
+    let plan =
+        build_dash_representation_plan(manifest, manifest_url, indices.0, indices.1, indices.2)
+            .map_err(|error| NativeMediaTaskError::Resolution(error.to_string()))?;
     let adaptation = manifest
         .periods
         .get(indices.0)
         .and_then(|period| period.adaptations.get(indices.1))
-        .ok_or_else(|| NativeMediaTaskError::Resolution("DASH adaptation disappeared".to_owned()))?;
-    let representation = adaptation
-        .representations
-        .get(indices.2)
-        .ok_or_else(|| NativeMediaTaskError::Resolution("DASH representation disappeared".to_owned()))?;
+        .ok_or_else(|| {
+            NativeMediaTaskError::Resolution("DASH adaptation disappeared".to_owned())
+        })?;
+    let representation = adaptation.representations.get(indices.2).ok_or_else(|| {
+        NativeMediaTaskError::Resolution("DASH representation disappeared".to_owned())
+    })?;
     let staged = stage_dash_representation_plan_controlled_with_progress_scoped(
         &plan,
         context,
@@ -2715,8 +2705,8 @@ where
         ));
     }
 
-    let separate_audio = mode == MediaSelectionMode::Video
-        && audio_indices.iter().all(Option::is_some);
+    let separate_audio =
+        mode == MediaSelectionMode::Video && audio_indices.iter().all(Option::is_some);
     if mode == MediaSelectionMode::Video
         && !separate_audio
         && audio_indices.iter().any(Option::is_some)
@@ -2817,7 +2807,11 @@ where
         context,
         &selected_indices,
         &selected_codecs,
-        if mode == MediaSelectionMode::Audio { "audio" } else { "video" },
+        if mode == MediaSelectionMode::Audio {
+            "audio"
+        } else {
+            "video"
+        },
         staging_dir,
         connections,
         should_cancel,
@@ -2850,8 +2844,7 @@ where
     let (staged_bytes, kind) =
         mux_dash_period_groups(&groups, &output_path, mux_container, should_cancel)?;
     if (mode == MediaSelectionMode::Audio && kind != nova_media_core::MediaTrackKind::Audio)
-        || (mode == MediaSelectionMode::Video
-            && kind == nova_media_core::MediaTrackKind::Audio)
+        || (mode == MediaSelectionMode::Video && kind == nova_media_core::MediaTrackKind::Audio)
         || (separate_audio && kind != nova_media_core::MediaTrackKind::AudioVideo)
     {
         return Err(NativeMediaTaskError::UnsupportedFeature(
@@ -2863,7 +2856,9 @@ where
     let audio_codec = if mode == MediaSelectionMode::Audio {
         first_metadata.audio_codec.clone()
     } else if separate_audio {
-        audio_metadata.first().and_then(|metadata| metadata.audio_codec.clone())
+        audio_metadata
+            .first()
+            .and_then(|metadata| metadata.audio_codec.clone())
     } else {
         first_metadata.audio_codec.clone()
     };
@@ -3063,9 +3058,10 @@ where
 
         if let Some(plan) = audio_refresh.plan {
             let tick_dir = staging_dir.join(format!("audio-tick-{tick:08}"));
-            let base = checkpoint.video.total_bytes.saturating_add(
-                checkpoint.audio.total_bytes,
-            );
+            let base = checkpoint
+                .video
+                .total_bytes
+                .saturating_add(checkpoint.audio.total_bytes);
             let staged = stage_dash_representation_plan_controlled_with_progress_scoped(
                 &plan,
                 &refresh_context,
@@ -3194,8 +3190,7 @@ where
             on_progress,
         );
     }
-    let video_indices =
-        best_dash_track_indices(&manifest, DashTrackKind::Video, None, max_height);
+    let video_indices = best_dash_track_indices(&manifest, DashTrackKind::Video, None, max_height);
     let audio_period = video_indices.map(|indices| indices.0);
     let audio_indices =
         best_dash_track_indices(&manifest, DashTrackKind::Audio, audio_period, None);
@@ -3213,8 +3208,7 @@ where
         })?
     };
     let (selected_kind, video_codec, audio_codec, input_container) = {
-        let adaptation =
-            &manifest.periods[selected_indices.0].adaptations[selected_indices.1];
+        let adaptation = &manifest.periods[selected_indices.0].adaptations[selected_indices.1];
         let representation = &adaptation.representations[selected_indices.2];
         let kind = dash_representation_kind(adaptation, representation);
         let video_codec = dash_representation_codec(adaptation, representation, false);
@@ -3232,7 +3226,8 @@ where
             dash_track_container(adaptation, representation, &plan),
         )
     };
-    let output_kind = if mode == MediaSelectionMode::Audio || selected_kind == DashTrackKind::Audio {
+    let output_kind = if mode == MediaSelectionMode::Audio || selected_kind == DashTrackKind::Audio
+    {
         nova_media_core::MediaTrackKind::Audio
     } else if video_codec.is_some() && audio_codec.is_some() {
         nova_media_core::MediaTrackKind::AudioVideo
@@ -3246,25 +3241,17 @@ where
             if let (Some(video), Some(audio)) = (video_indices, audio_indices) {
                 if video != audio {
                     let (video_codec, audio_codec) = {
-                        let video_adaptation =
-                            &manifest.periods[video.0].adaptations[video.1];
-                        let video_representation =
-                            &video_adaptation.representations[video.2];
-                        let audio_adaptation =
-                            &manifest.periods[audio.0].adaptations[audio.1];
-                        let audio_representation =
-                            &audio_adaptation.representations[audio.2];
+                        let video_adaptation = &manifest.periods[video.0].adaptations[video.1];
+                        let video_representation = &video_adaptation.representations[video.2];
+                        let audio_adaptation = &manifest.periods[audio.0].adaptations[audio.1];
+                        let audio_representation = &audio_adaptation.representations[audio.2];
                         (
                             dash_representation_codec(
                                 video_adaptation,
                                 video_representation,
                                 false,
                             ),
-                            dash_representation_codec(
-                                audio_adaptation,
-                                audio_representation,
-                                true,
-                            ),
+                            dash_representation_codec(audio_adaptation, audio_representation, true),
                         )
                     };
                     return stage_dash_live_pair_stream(
@@ -3416,20 +3403,13 @@ where
 fn fetch_hls_media_playlist(
     playlist_url: &str,
     context: &HttpRequestContext,
-) -> Result<
-    (
-        nova_stream_core::HlsManifest,
-        String,
-        HttpRequestContext,
-    ),
-    NativeMediaTaskError,
-> {
-    let response =
-        fetch_http_bytes_with_context(playlist_url, context, DEFAULT_MANIFEST_MAX_BYTES)
-            .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+) -> Result<(nova_stream_core::HlsManifest, String, HttpRequestContext), NativeMediaTaskError> {
+    let response = fetch_http_bytes_with_context(playlist_url, context, DEFAULT_MANIFEST_MAX_BYTES)
+        .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
     let effective_url = response.effective_url;
-    let body = String::from_utf8(response.body)
-        .map_err(|_| NativeMediaTaskError::Resolution("HLS live manifest is not UTF-8".to_owned()))?;
+    let body = String::from_utf8(response.body).map_err(|_| {
+        NativeMediaTaskError::Resolution("HLS live manifest is not UTF-8".to_owned())
+    })?;
     let manifest = parse_hls(&effective_url, &body)
         .map_err(|error| NativeMediaTaskError::Resolution(error.to_string()))?;
     if manifest.kind != HlsPlaylistKind::Media {
@@ -3559,9 +3539,10 @@ where
         if let Some(plan) = audio_refresh.plan {
             if !plan.units.is_empty() {
                 let tick_dir = staging_dir.join(format!("audio-tick-{tick:08}"));
-                let base = checkpoint.video.total_bytes.saturating_add(
-                    checkpoint.audio.total_bytes,
-                );
+                let base = checkpoint
+                    .video
+                    .total_bytes
+                    .saturating_add(checkpoint.audio.total_bytes);
                 let staged = stage_hls_media_plan_controlled_with_progress_scoped(
                     &plan,
                     &scoped_audio_context,
@@ -3746,11 +3727,7 @@ where
         }
 
         tick = tick.saturating_add(1);
-        sleep_live_refresh(
-            refresh.reload_after_millis,
-            should_cancel,
-            should_finish,
-        )?;
+        sleep_live_refresh(refresh.reload_after_millis, should_cancel, should_finish)?;
     }
 }
 
@@ -3857,11 +3834,7 @@ where
             return Ok((parts, checkpoint.total_bytes));
         }
         tick = tick.saturating_add(1);
-        sleep_live_refresh(
-            refresh.reload_after_millis,
-            should_cancel,
-            should_finish,
-        )?;
+        sleep_live_refresh(refresh.reload_after_millis, should_cancel, should_finish)?;
     }
 }
 
@@ -4722,7 +4695,9 @@ fn validate_native_output_template(template: &str) -> Result<(), String> {
             continue;
         }
         if bytes.get(index + 1) != Some(&b'(') {
-            return Err("Media output templates may use only supported %(field)s tokens".to_owned());
+            return Err(
+                "Media output templates may use only supported %(field)s tokens".to_owned(),
+            );
         }
         let token_start = index + 2;
         let token_end = bytes[token_start..]
@@ -4732,7 +4707,9 @@ fn validate_native_output_template(template: &str) -> Result<(), String> {
             .ok_or_else(|| "Media output template contains an unfinished token".to_owned())?;
         let token = &template[token_start..token_end];
         if !matches!(token, "title" | "uploader" | "playlist_index" | "ext") {
-            return Err(format!("Media output template token '{token}' is not supported"));
+            return Err(format!(
+                "Media output template token '{token}' is not supported"
+            ));
         }
         index = token_end + 2;
     }
@@ -4789,13 +4766,12 @@ fn resolve_native_media(
 
         let native_multitrack_enabled = native_multitrack_enabled();
         let multitrack_enabled = native_multitrack_enabled;
-        let preferred_container = if native_multitrack_enabled
-            && selection.preferred_container.is_none()
-        {
-            Some("mp4".to_owned())
-        } else {
-            selection.preferred_container.clone()
-        };
+        let preferred_container =
+            if native_multitrack_enabled && selection.preferred_container.is_none() {
+                Some("mp4".to_owned())
+            } else {
+                selection.preferred_container.clone()
+            };
         let youtube_policy = YouTubeSelectionPolicy {
             mode: selection.mode,
             max_height,
@@ -4995,9 +4971,12 @@ fn requested_separate_track_container(
     if matches!(requested.to_ascii_lowercase().as_str(), "auto" | "best") {
         return Ok(default_container.to_owned());
     }
-    let requested = normalize_output_extension(requested)
-        .map_err(NativeMediaTaskError::InvalidRequest)?;
-    if matches!(requested.as_str(), "mp4" | "mkv" | "webm" | "mov" | "avi" | "flv") {
+    let requested =
+        normalize_output_extension(requested).map_err(NativeMediaTaskError::InvalidRequest)?;
+    if matches!(
+        requested.as_str(),
+        "mp4" | "mkv" | "webm" | "mov" | "avi" | "flv"
+    ) {
         Ok(requested)
     } else {
         Err(NativeMediaTaskError::InvalidRequest(format!(
@@ -5007,7 +4986,12 @@ fn requested_separate_track_container(
 }
 
 fn normalize_output_extension(value: &str) -> Result<String, String> {
-    match value.trim().trim_start_matches('.').to_ascii_lowercase().as_str() {
+    match value
+        .trim()
+        .trim_start_matches('.')
+        .to_ascii_lowercase()
+        .as_str()
+    {
         "mp4" | "m4v" | "mpd" => Ok("mp4".to_owned()),
         "m4a" => Ok("m4a".to_owned()),
         "aac" => Ok("m4a".to_owned()),
@@ -5055,29 +5039,48 @@ fn requested_output_extension(
         options.and_then(|options| options.remux_format.as_deref())
     }
     .map(str::trim)
-    .filter(|value| !value.is_empty() && !matches!(value.to_ascii_lowercase().as_str(), "auto" | "best"));
+    .filter(|value| {
+        !value.is_empty() && !matches!(value.to_ascii_lowercase().as_str(), "auto" | "best")
+    });
 
     match requested {
         Some(format) => {
             let extension = normalize_output_extension(format)?;
             let allowed = if mode == MediaSelectionMode::Audio {
-                matches!(extension.as_str(), "mp4" | "m4a" | "mka" | "mp3" | "flac" | "ogg" | "opus" | "wav")
+                matches!(
+                    extension.as_str(),
+                    "mp4" | "m4a" | "mka" | "mp3" | "flac" | "ogg" | "opus" | "wav"
+                )
             } else {
-                matches!(extension.as_str(), "mp4" | "mkv" | "webm" | "mov" | "avi" | "flv" | "ts")
+                matches!(
+                    extension.as_str(),
+                    "mp4" | "mkv" | "webm" | "mov" | "avi" | "flv" | "ts"
+                )
             };
             if allowed {
                 Ok(extension)
             } else {
                 Err(format!(
                     "Output format '{format}' is not valid for {} media mode",
-                    if mode == MediaSelectionMode::Audio { "audio" } else { "video" }
+                    if mode == MediaSelectionMode::Audio {
+                        "audio"
+                    } else {
+                        "video"
+                    }
                 ))
             }
         }
         None => Ok(source_container
             .map(normalize_output_extension)
             .transpose()?
-            .unwrap_or_else(|| if mode == MediaSelectionMode::Audio { "m4a" } else { "mp4" }.to_owned())),
+            .unwrap_or_else(|| {
+                if mode == MediaSelectionMode::Audio {
+                    "m4a"
+                } else {
+                    "mp4"
+                }
+                .to_owned()
+            })),
     }
 }
 
@@ -5095,13 +5098,11 @@ fn validate_requested_native_transcode(
     let include_video = mode != MediaSelectionMode::Audio
         && matches!(
             kind,
-            nova_media_core::MediaTrackKind::Video
-                | nova_media_core::MediaTrackKind::AudioVideo
+            nova_media_core::MediaTrackKind::Video | nova_media_core::MediaTrackKind::AudioVideo
         );
     let include_audio = matches!(
         kind,
-        nova_media_core::MediaTrackKind::Audio
-            | nova_media_core::MediaTrackKind::AudioVideo
+        nova_media_core::MediaTrackKind::Audio | nova_media_core::MediaTrackKind::AudioVideo
     ) || mode == MediaSelectionMode::Audio;
     let output_extension = requested_output_extension(options, mode, source_container)
         .map_err(NativeMediaTaskError::InvalidRequest)?;
@@ -5132,7 +5133,14 @@ fn media_transcoding_requested(
     let Some(options) = options else {
         return Ok(false);
     };
-    let mode = match options.mode.as_deref().unwrap_or("video").trim().to_ascii_lowercase().as_str() {
+    let mode = match options
+        .mode
+        .as_deref()
+        .unwrap_or("video")
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
+    {
         "audio" => MediaSelectionMode::Audio,
         _ => MediaSelectionMode::Video,
     };
@@ -5144,21 +5152,30 @@ fn media_transcoding_requested(
         .map_err(NativeMediaTaskError::InvalidRequest)?;
     let output_format_is_explicit = if mode == MediaSelectionMode::Audio {
         options.audio_format.as_deref().is_some_and(|value| {
-            !value.trim().is_empty() && !matches!(value.trim().to_ascii_lowercase().as_str(), "auto" | "best")
+            !value.trim().is_empty()
+                && !matches!(value.trim().to_ascii_lowercase().as_str(), "auto" | "best")
         })
     } else {
         options.remux_format.as_deref().is_some_and(|value| {
-            !value.trim().is_empty() && !matches!(value.trim().to_ascii_lowercase().as_str(), "auto" | "best")
+            !value.trim().is_empty()
+                && !matches!(value.trim().to_ascii_lowercase().as_str(), "auto" | "best")
         })
     };
     let audio_bitrate_requested = mode == MediaSelectionMode::Audio
         && options.bitrate.as_deref().is_some_and(|value| {
-            !value.trim().is_empty() && !matches!(value.trim().to_ascii_lowercase().as_str(), "0" | "best" | "auto")
+            !value.trim().is_empty()
+                && !matches!(
+                    value.trim().to_ascii_lowercase().as_str(),
+                    "0" | "best" | "auto"
+                )
         });
-    let explicit_encoder = [options.video_codec.as_deref(), options.audio_codec.as_deref()]
-        .into_iter()
-        .flatten()
-        .any(|value| !value.trim().is_empty() && !value.trim().eq_ignore_ascii_case("copy"));
+    let explicit_encoder = [
+        options.video_codec.as_deref(),
+        options.audio_codec.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    .any(|value| !value.trim().is_empty() && !value.trim().eq_ignore_ascii_case("copy"));
     let codec_settings = options.video_bitrate_bps.is_some()
         || options.audio_bitrate_bps.is_some()
         || options.transcode_crf.is_some()
@@ -5238,7 +5255,12 @@ fn build_media_transcode_request(
     if !media_transcoding_requested(Some(options), source_container)? {
         return Ok(None);
     }
-    let mode = options.mode.as_deref().unwrap_or("video").trim().to_ascii_lowercase();
+    let mode = options
+        .mode
+        .as_deref()
+        .unwrap_or("video")
+        .trim()
+        .to_ascii_lowercase();
     let requested_audio_bitrate = if mode == "audio" {
         options
             .bitrate
@@ -5264,7 +5286,12 @@ fn build_media_transcode_request(
         .flatten()
         .or_else(|| {
             (mode == "audio")
-                .then(|| options.audio_format.as_deref().and_then(audio_codec_for_output))
+                .then(|| {
+                    options
+                        .audio_format
+                        .as_deref()
+                        .and_then(audio_codec_for_output)
+                })
                 .flatten()
                 .map(str::to_owned)
         });
@@ -5272,9 +5299,8 @@ fn build_media_transcode_request(
         && (audio_bitrate_bps.is_some()
             || options.audio_sample_rate_hz.is_some()
             || options.audio_channels.is_some());
-    let audio_codec = selected_audio_codec.or_else(|| {
-        (audio_has_encoding_settings && include_audio).then(|| "aac".to_owned())
-    });
+    let audio_codec = selected_audio_codec
+        .or_else(|| (audio_has_encoding_settings && include_audio).then(|| "aac".to_owned()));
     let selected_video_codec = include_video
         .then(|| {
             options
@@ -5291,9 +5317,8 @@ fn build_media_transcode_request(
             || options.width.is_some()
             || options.height.is_some()
             || options.frame_rate_milli.is_some());
-    let video_codec = selected_video_codec.or_else(|| {
-        (video_has_encoding_settings && include_video).then(|| "h264".to_owned())
-    });
+    let video_codec = selected_video_codec
+        .or_else(|| (video_has_encoding_settings && include_video).then(|| "h264".to_owned()));
     let request = MediaTranscodeRequest {
         media_path: media_path.to_path_buf(),
         input_container: source_container.map(str::to_owned),
@@ -5313,7 +5338,9 @@ fn build_media_transcode_request(
         width: include_video.then_some(options.width).flatten(),
         height: include_video.then_some(options.height).flatten(),
         frame_rate_milli: include_video.then_some(options.frame_rate_milli).flatten(),
-        audio_sample_rate_hz: include_audio.then_some(options.audio_sample_rate_hz).flatten(),
+        audio_sample_rate_hz: include_audio
+            .then_some(options.audio_sample_rate_hz)
+            .flatten(),
         audio_channels: include_audio.then_some(options.audio_channels).flatten(),
         threads: options.processing_threads,
         include_video,
@@ -5358,8 +5385,8 @@ fn ensure_requested_audio_container(
     if matches!(requested.to_ascii_lowercase().as_str(), "best" | "auto") {
         return Ok(());
     }
-    let extension = normalize_output_extension(requested)
-        .map_err(NativeMediaTaskError::InvalidRequest)?;
+    let extension =
+        normalize_output_extension(requested).map_err(NativeMediaTaskError::InvalidRequest)?;
     if matches!(
         extension.as_str(),
         "mp4" | "m4a" | "aac" | "mp3" | "flac" | "ogg" | "opus" | "wav"
@@ -5762,12 +5789,9 @@ fn resolved_from_descriptor(
                 (MediaSelectionMode::Video, MediaProtocol::Http | MediaProtocol::Https) => None,
             };
             let source_container = stream.container.as_deref().or(default_source_container);
-            let output_container = requested_output_extension(
-                body.media_options.as_ref(),
-                mode,
-                source_container,
-            )
-            .map_err(NativeMediaTaskError::InvalidRequest)?;
+            let output_container =
+                requested_output_extension(body.media_options.as_ref(), mode, source_container)
+                    .map_err(NativeMediaTaskError::InvalidRequest)?;
             Ok(ResolvedNativeMedia::Manifest(ResolvedManifestMedia {
                 descriptor: descriptor.clone(),
                 stream: stream.clone(),
@@ -6127,8 +6151,21 @@ fn render_native_output_name(
         .map(|index| index.to_string())
         .unwrap_or_else(|| "1".to_owned());
     let rendered = template
-        .replace("%(title)s", if title.trim().is_empty() { fallback } else { title.trim() })
-        .replace("%(uploader)s", uploader.map(str::trim).filter(|value| !value.is_empty()).unwrap_or("unknown"))
+        .replace(
+            "%(title)s",
+            if title.trim().is_empty() {
+                fallback
+            } else {
+                title.trim()
+            },
+        )
+        .replace(
+            "%(uploader)s",
+            uploader
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or("unknown"),
+        )
         .replace("%(playlist_index)s", &playlist_index)
         .replace("%(ext)s", extension.trim_start_matches('.'));
     Ok(crate::daemon::utils::sanitize_derived_file_name(&rendered))
@@ -6220,7 +6257,9 @@ mod tests {
     #[test]
     fn native_output_template_renders_safe_metadata_fields() {
         let options = MediaDownloadOptions {
-            output_template: Some("%(uploader)s - %(title)s - %(playlist_index)s.%(ext)s".to_owned()),
+            output_template: Some(
+                "%(uploader)s - %(title)s - %(playlist_index)s.%(ext)s".to_owned(),
+            ),
             playlist_items: Some("2".to_owned()),
             ..MediaDownloadOptions::default()
         };
@@ -6535,11 +6574,7 @@ mod tests {
         assert!(media_transcoding_requested(options, Some("mpegts"))
             .expect("default M4A output requires native conversion or remux"));
 
-        request
-            .media_options
-            .as_mut()
-            .expect("media")
-            .audio_format = Some("mp3".to_owned());
+        request.media_options.as_mut().expect("media").audio_format = Some("mp3".to_owned());
         let output = apply_native_manifest_output_defaults(
             &mut request,
             MediaSelectionMode::Audio,
@@ -6965,7 +7000,10 @@ mod tests {
 
         assert_eq!(variant.resolution, Some((1920, 1080)));
         assert_eq!(capped_variant.resolution, Some((1280, 720)));
-        assert_eq!(audio.uri.as_deref(), Some("https://media.test/audio/index.m3u8"));
+        assert_eq!(
+            audio.uri.as_deref(),
+            Some("https://media.test/audio/index.m3u8")
+        );
         assert_eq!(
             hls_codec_for_track(&variant.codecs, false).as_deref(),
             Some("avc1.4d401f")
@@ -6993,14 +7031,31 @@ mod tests {
         .expect("parse DASH audio/video fixture");
         let video = best_dash_track_indices(&manifest, DashTrackKind::Video, None, None)
             .expect("select DASH video representation");
-        let capped_video = best_dash_track_indices(&manifest, DashTrackKind::Video, None, Some(480))
-            .expect("select DASH video representation within quality limit");
+        let capped_video =
+            best_dash_track_indices(&manifest, DashTrackKind::Video, None, Some(480))
+                .expect("select DASH video representation within quality limit");
         let audio = best_dash_track_indices(&manifest, DashTrackKind::Audio, Some(video.0), None)
             .expect("select DASH audio representation");
 
-        assert_eq!(manifest.periods[video.0].adaptations[video.1].representations[video.2].id.as_deref(), Some("v720"));
-        assert_eq!(manifest.periods[capped_video.0].adaptations[capped_video.1].representations[capped_video.2].id.as_deref(), Some("v360"));
-        assert_eq!(manifest.periods[audio.0].adaptations[audio.1].representations[audio.2].id.as_deref(), Some("a256"));
+        assert_eq!(
+            manifest.periods[video.0].adaptations[video.1].representations[video.2]
+                .id
+                .as_deref(),
+            Some("v720")
+        );
+        assert_eq!(
+            manifest.periods[capped_video.0].adaptations[capped_video.1].representations
+                [capped_video.2]
+                .id
+                .as_deref(),
+            Some("v360")
+        );
+        assert_eq!(
+            manifest.periods[audio.0].adaptations[audio.1].representations[audio.2]
+                .id
+                .as_deref(),
+            Some("a256")
+        );
         assert_eq!(audio.0, video.0);
     }
 
@@ -7265,8 +7320,14 @@ mod tests {
         let mut demuxer = nova_media_core::processing::Mp4Demuxer::open(&output)
             .expect("read joined DASH output");
         assert_eq!(demuxer.packet_count(), 2);
-        let first = demuxer.next_packet().expect("first output packet").expect("packet");
-        let second = demuxer.next_packet().expect("second output packet").expect("packet");
+        let first = demuxer
+            .next_packet()
+            .expect("first output packet")
+            .expect("packet");
+        let second = demuxer
+            .next_packet()
+            .expect("second output packet")
+            .expect("packet");
         assert_eq!(first.dts.map(|timestamp| timestamp.value), Some(0));
         assert_eq!(second.dts.map(|timestamp| timestamp.value), Some(1000));
         assert_eq!(demuxer.next_packet().expect("end of output"), None);
@@ -7517,7 +7578,9 @@ mod tests {
             for _ in 0..2 {
                 let (mut stream, _) = listener.accept().expect("accept DASH segment request");
                 let mut request = [0_u8; 4096];
-                let read = stream.read(&mut request).expect("read DASH segment request");
+                let read = stream
+                    .read(&mut request)
+                    .expect("read DASH segment request");
                 let request = String::from_utf8_lossy(&request[..read]);
                 let body: &[u8] = if request.contains("GET /init.mp4 ") {
                     b"INIT"

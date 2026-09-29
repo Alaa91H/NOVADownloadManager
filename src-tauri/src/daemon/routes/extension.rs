@@ -11,17 +11,11 @@ use std::convert::Infallible;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
-use crate::daemon::curl::{
-    create_curl_task as direct_create, delete_task, get_task, list_all_tasks, pause_task,
-    resume_task,
-};
-use crate::daemon::native_media::create_native_media_task;
+use crate::daemon::curl::list_all_tasks;
 use crate::daemon::state::{
     PendingCaptureReview, SharedState, CAPTURE_REVIEW_TTL, MAX_PENDING_CAPTURE_REVIEWS,
 };
-use crate::daemon::torrent_task::{
-    analyze_magnet, analyze_metainfo, create_torrent_task, CreateTorrentBody,
-};
+use crate::daemon::torrent_task::{analyze_magnet, analyze_metainfo, CreateTorrentBody};
 use crate::daemon::types::{CreateDownloadBody, Task};
 use nova_torrent_core::MagnetLink;
 
@@ -265,16 +259,51 @@ pub async fn handle_browser_ext_health(
 }
 
 pub async fn handle_v1_list_tasks(State(state): State<SharedState>) -> Json<serde_json::Value> {
-    Json(serde_json::json!({"ok": true, "tasks": list_all_tasks(&state).await}))
+    let mut filter = nova_core_model::TaskQueryFilter {
+        limit: Some(1000),
+        ..Default::default()
+    };
+    let mut tasks = Vec::new();
+    loop {
+        let page = match super::commands::query_legacy(
+            &state,
+            nova_core_model::ControlQuery::ListTasks {
+                filter: filter.clone(),
+            },
+        )
+        .await
+        {
+            Ok(page) => page,
+            Err(error) => {
+                return Json(serde_json::json!({"ok": false, "error": error.message}));
+            }
+        };
+        if let Some(items) = page.get("items").and_then(serde_json::Value::as_array) {
+            tasks.extend(items.iter().cloned());
+        }
+        filter.cursor = page
+            .get("nextCursor")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned);
+        if filter.cursor.is_none() {
+            break;
+        }
+    }
+    Json(serde_json::json!({"ok": true, "tasks": tasks}))
 }
 
 pub async fn handle_v1_get_task(
     State(state): State<SharedState>,
     Path(id): Path<String>,
 ) -> Json<serde_json::Value> {
-    match get_task(&state, &id) {
-        Some(task) => Json(serde_json::json!({"ok": true, "task": task})),
-        None => Json(serde_json::json!({"ok": false, "error": "Task not found"})),
+    match super::commands::query_legacy(
+        &state,
+        nova_core_model::ControlQuery::GetTask { task_id: id },
+    )
+    .await
+    {
+        Ok(task) => Json(serde_json::json!({"ok": true, "task": task})),
+        Err(error) => Json(serde_json::json!({"ok": false, "error": error.message})),
     }
 }
 
@@ -293,11 +322,25 @@ pub async fn handle_v1_pause_task_body(
     Json(body): Json<serde_json::Value>,
 ) -> Json<serde_json::Value> {
     match task_id_from_json(&body) {
-        Ok(id) => match pause_task(&state, &id).await {
+        Ok(id) => match super::commands::execute_legacy(
+            &state,
+            nova_core_model::ControlCommand::PauseTask {
+                task_id: id.clone(),
+            },
+            None,
+        )
+        .await
+        {
             Ok(task) => {
-                Json(serde_json::json!({"ok": true, "taskId": task.id, "message": "Paused"}))
+                let task_id = task
+                    .get("id")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or(&id);
+                Json(serde_json::json!({"ok": true, "taskId": task_id, "message": "Paused"}))
             }
-            Err(error) => Json(serde_json::json!({"ok": false, "taskId": id, "message": error})),
+            Err(error) => {
+                Json(serde_json::json!({"ok": false, "taskId": id, "message": error.message}))
+            }
         },
         Err(error) => Json(serde_json::json!({"ok": false, "message": error})),
     }
@@ -308,11 +351,25 @@ pub async fn handle_v1_resume_task_body(
     Json(body): Json<serde_json::Value>,
 ) -> Json<serde_json::Value> {
     match task_id_from_json(&body) {
-        Ok(id) => match resume_task(&state, &id).await {
+        Ok(id) => match super::commands::execute_legacy(
+            &state,
+            nova_core_model::ControlCommand::ResumeTask {
+                task_id: id.clone(),
+            },
+            None,
+        )
+        .await
+        {
             Ok(task) => {
-                Json(serde_json::json!({"ok": true, "taskId": task.id, "message": "Resumed"}))
+                let task_id = task
+                    .get("id")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or(&id);
+                Json(serde_json::json!({"ok": true, "taskId": task_id, "message": "Resumed"}))
             }
-            Err(error) => Json(serde_json::json!({"ok": false, "taskId": id, "message": error})),
+            Err(error) => {
+                Json(serde_json::json!({"ok": false, "taskId": id, "message": error.message}))
+            }
         },
         Err(error) => Json(serde_json::json!({"ok": false, "message": error})),
     }
@@ -323,11 +380,22 @@ pub async fn handle_v1_cancel_task_body(
     Json(body): Json<serde_json::Value>,
 ) -> Json<serde_json::Value> {
     match task_id_from_json(&body) {
-        Ok(id) => match delete_task(&state, &id, false).await {
-            Ok(()) => {
+        Ok(id) => match super::commands::execute_legacy(
+            &state,
+            nova_core_model::ControlCommand::DeleteTask {
+                task_id: id.clone(),
+                delete_files: false,
+            },
+            None,
+        )
+        .await
+        {
+            Ok(_) => {
                 Json(serde_json::json!({"ok": true, "taskId": id, "message": "Removed from list"}))
             }
-            Err(error) => Json(serde_json::json!({"ok": false, "taskId": id, "message": error})),
+            Err(error) => {
+                Json(serde_json::json!({"ok": false, "taskId": id, "message": error.message}))
+            }
         },
         Err(error) => Json(serde_json::json!({"ok": false, "message": error})),
     }
@@ -337,9 +405,25 @@ pub async fn handle_v1_pause_task_path(
     State(state): State<SharedState>,
     Path(id): Path<String>,
 ) -> Json<serde_json::Value> {
-    match pause_task(&state, &id).await {
-        Ok(task) => Json(serde_json::json!({"ok": true, "taskId": task.id, "message": "Paused"})),
-        Err(error) => Json(serde_json::json!({"ok": false, "taskId": id, "message": error})),
+    match super::commands::execute_legacy(
+        &state,
+        nova_core_model::ControlCommand::PauseTask {
+            task_id: id.clone(),
+        },
+        None,
+    )
+    .await
+    {
+        Ok(task) => {
+            let task_id = task
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or(&id);
+            Json(serde_json::json!({"ok": true, "taskId": task_id, "message": "Paused"}))
+        }
+        Err(error) => {
+            Json(serde_json::json!({"ok": false, "taskId": id, "message": error.message}))
+        }
     }
 }
 
@@ -347,9 +431,25 @@ pub async fn handle_v1_resume_task_path(
     State(state): State<SharedState>,
     Path(id): Path<String>,
 ) -> Json<serde_json::Value> {
-    match resume_task(&state, &id).await {
-        Ok(task) => Json(serde_json::json!({"ok": true, "taskId": task.id, "message": "Resumed"})),
-        Err(error) => Json(serde_json::json!({"ok": false, "taskId": id, "message": error})),
+    match super::commands::execute_legacy(
+        &state,
+        nova_core_model::ControlCommand::ResumeTask {
+            task_id: id.clone(),
+        },
+        None,
+    )
+    .await
+    {
+        Ok(task) => {
+            let task_id = task
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or(&id);
+            Json(serde_json::json!({"ok": true, "taskId": task_id, "message": "Resumed"}))
+        }
+        Err(error) => {
+            Json(serde_json::json!({"ok": false, "taskId": id, "message": error.message}))
+        }
     }
 }
 
@@ -357,11 +457,22 @@ pub async fn handle_v1_cancel_task_path(
     State(state): State<SharedState>,
     Path(id): Path<String>,
 ) -> Json<serde_json::Value> {
-    match delete_task(&state, &id, false).await {
-        Ok(()) => {
+    match super::commands::execute_legacy(
+        &state,
+        nova_core_model::ControlCommand::DeleteTask {
+            task_id: id.clone(),
+            delete_files: false,
+        },
+        None,
+    )
+    .await
+    {
+        Ok(_) => {
             Json(serde_json::json!({"ok": true, "taskId": id, "message": "Removed from list"}))
         }
-        Err(error) => Json(serde_json::json!({"ok": false, "taskId": id, "message": error})),
+        Err(error) => {
+            Json(serde_json::json!({"ok": false, "taskId": id, "message": error.message}))
+        }
     }
 }
 
@@ -451,8 +562,8 @@ pub(super) fn is_torrent_metainfo_url(raw: &str) -> bool {
 
 pub(super) async fn fetch_torrent_metainfo_url(raw_url: &str) -> Result<Vec<u8>, String> {
     const MAX_REDIRECTS: usize = 5;
-    let mut current = reqwest::Url::parse(raw_url)
-        .map_err(|_| "Invalid torrent metainfo URL.".to_owned())?;
+    let mut current =
+        reqwest::Url::parse(raw_url).map_err(|_| "Invalid torrent metainfo URL.".to_owned())?;
 
     for redirect_count in 0..=MAX_REDIRECTS {
         if !matches!(current.scheme(), "http" | "https")
@@ -485,7 +596,10 @@ pub(super) async fn fetch_torrent_metainfo_url(raw_url: &str) -> Result<Vec<u8>,
             .map_err(|_| "Could not prepare a safe torrent metainfo request.".to_owned())?;
         let response = client
             .get(current.clone())
-            .header(reqwest::header::ACCEPT, "application/x-bittorrent, application/octet-stream")
+            .header(
+                reqwest::header::ACCEPT,
+                "application/x-bittorrent, application/octet-stream",
+            )
             .header(
                 reqwest::header::USER_AGENT,
                 crate::daemon::utils::DEFAULT_USER_AGENT,
@@ -608,7 +722,9 @@ pub(super) fn extension_candidate_to_download_body(
     }
     if media_type == "torrent" {
         if !is_torrent_metainfo_url(url) {
-            return Err("Torrent candidates must be credential-free HTTP(S) .torrent URLs.".to_owned());
+            return Err(
+                "Torrent candidates must be credential-free HTTP(S) .torrent URLs.".to_owned(),
+            );
         }
         return Ok(CreateDownloadBody {
             url: Some(url.to_owned()),
@@ -844,13 +960,15 @@ async fn create_download_from_body(
         .as_deref()
         .ok_or_else(|| "Missing candidate URL".to_owned())?;
     let is_magnet = url.trim().to_ascii_lowercase().starts_with("magnet:");
-    let is_torrent_metainfo = download_body.file_type.as_deref() == Some("torrent")
-        && !is_magnet;
+    let is_torrent_metainfo = download_body.file_type.as_deref() == Some("torrent") && !is_magnet;
     if is_magnet || is_torrent_metainfo {
         if is_magnet {
-        MagnetLink::parse(url.trim()).map_err(|error| format!("Invalid magnet URI: {error}"))?;
+            MagnetLink::parse(url.trim())
+                .map_err(|error| format!("Invalid magnet URI: {error}"))?;
         } else if !is_torrent_metainfo_url(url) {
-            return Err("Torrent metainfo must use a credential-free HTTP(S) .torrent URL.".to_owned());
+            return Err(
+                "Torrent metainfo must use a credential-free HTTP(S) .torrent URL.".to_owned(),
+            );
         }
         let save_path = download_body
             .save_path
@@ -864,7 +982,7 @@ async fn create_download_from_body(
             let bytes = fetch_torrent_metainfo_url(url).await?;
             analyze_metainfo(state, &bytes).await?
         };
-        return create_torrent_task(
+        return super::commands::add_torrent_from_body(
             state,
             CreateTorrentBody {
                 analysis_id: analysis.analysis_id,
@@ -875,18 +993,15 @@ async fn create_download_from_body(
                 connections: download_body.connections,
                 seeding: None,
             },
+            None,
         )
-        .await;
+        .await
+        .map_err(|error| error.message);
     }
     crate::daemon::utils::is_safe_target_url(url)?;
-
-    if download_body.media_options.is_some() {
-        return create_native_media_task(state, download_body)
-            .await
-            .map_err(|error| error.to_string());
-    }
-
-    direct_create(state, download_body).await
+    super::commands::add_download_from_body(state, download_body.clone(), None)
+        .await
+        .map_err(|error| error.message)
 }
 
 fn capture_review_response(review_id: String, duplicate: bool) -> Json<serde_json::Value> {
@@ -1026,9 +1141,9 @@ pub async fn handle_analyze_capture_review_torrent(
         }));
     };
     review.torrent_analysis_id = Some(analysis.analysis_id.clone());
-    Json(serde_json::to_value(analysis).unwrap_or_else(|_| {
-        serde_json::json!({ "ok": false, "message": "Could not serialize torrent analysis." })
-    }))
+    Json(serde_json::to_value(analysis).unwrap_or_else(
+        |_| serde_json::json!({ "ok": false, "message": "Could not serialize torrent analysis." }),
+    ))
 }
 
 pub async fn handle_consume_capture_review_torrent(
@@ -1056,10 +1171,12 @@ pub async fn handle_consume_capture_review_torrent(
                 "message": "Analyze this capture before creating its torrent task."
             }));
         }
-        reviews.remove(position).expect("capture review position must remain valid")
+        reviews
+            .remove(position)
+            .expect("capture review position must remain valid")
     };
 
-    match create_torrent_task(&state, body).await {
+    match super::commands::add_torrent_from_body(&state, body, None).await {
         Ok(task) => Json(serde_json::json!({
             "ok": true,
             "accepted": true,
@@ -1068,7 +1185,7 @@ pub async fn handle_consume_capture_review_torrent(
             "taskIds": [task.id],
             "message": "Torrent approved and added"
         })),
-        Err(message) => {
+        Err(error) => {
             let mut reviews = state
                 .capture_reviews
                 .lock()
@@ -1078,7 +1195,7 @@ pub async fn handle_consume_capture_review_torrent(
                 reviews.pop_front();
             }
             reviews.push_front(pending);
-            Json(serde_json::json!({ "ok": false, "accepted": false, "message": message }))
+            Json(serde_json::json!({ "ok": false, "accepted": false, "message": error.message }))
         }
     }
 }
@@ -1472,12 +1589,12 @@ pub async fn handle_v1_media_add(
         direct_options: None,
         media_options: Some(media_options),
     };
-    match create_native_media_task(&state, &body).await {
+    match super::commands::add_download_from_body(&state, body, None).await {
         Ok(task) => Json(
             serde_json::json!({"ok": true, "accepted": true, "taskId": task.id, "taskIds": [task.id], "message": "Media added"}),
         ),
         Err(error) => Json(
-            serde_json::json!({"ok": false, "accepted": false, "taskId": "", "taskIds": [], "message": error.to_string()}),
+            serde_json::json!({"ok": false, "accepted": false, "taskId": "", "taskIds": [], "message": error.message}),
         ),
     }
 }
@@ -1585,12 +1702,12 @@ pub async fn handle_v1_stream_add(
         direct_options: None,
         media_options: Some(media_options),
     };
-    match create_native_media_task(&state, &body).await {
+    match super::commands::add_download_from_body(&state, body, None).await {
         Ok(task) => Json(
             serde_json::json!({"ok": true, "accepted": true, "taskId": task.id, "taskIds": [task.id], "message": "Stream added"}),
         ),
         Err(error) => Json(
-            serde_json::json!({"ok": false, "accepted": false, "taskId": "", "taskIds": [], "message": error.to_string()}),
+            serde_json::json!({"ok": false, "accepted": false, "taskId": "", "taskIds": [], "message": error.message}),
         ),
     }
 }
@@ -2009,10 +2126,16 @@ mod tests {
         let download = extension_candidate_to_download_body(&body, true)
             .expect("valid magnet candidate should be accepted");
 
-        assert_eq!(download.url.as_deref(), Some("magnet:?xt=urn:btih:0123456789012345678901234567890123456789&dn=Example"));
+        assert_eq!(
+            download.url.as_deref(),
+            Some("magnet:?xt=urn:btih:0123456789012345678901234567890123456789&dn=Example")
+        );
         assert_eq!(download.file_type.as_deref(), Some("torrent"));
         assert_eq!(download.category.as_deref(), Some("torrent"));
-        assert_eq!(download.referer.as_deref(), Some("https://example.test/watch"));
+        assert_eq!(
+            download.referer.as_deref(),
+            Some("https://example.test/watch")
+        );
         assert!(download.media_options.is_none());
     }
 
@@ -2027,7 +2150,10 @@ mod tests {
         });
         let download = extension_candidate_to_download_body(&body, true)
             .expect("credential-free HTTP(S) metainfo link should enter review");
-        assert_eq!(download.url.as_deref(), Some("https://example.test/file.torrent"));
+        assert_eq!(
+            download.url.as_deref(),
+            Some("https://example.test/file.torrent")
+        );
         assert_eq!(download.file_type.as_deref(), Some("torrent"));
         assert_eq!(download.category.as_deref(), Some("torrent"));
         assert!(download.media_options.is_none());
@@ -2056,7 +2182,9 @@ mod tests {
         assert!(!is_torrent_metainfo_url(
             "https://user:password@example.test/file.torrent"
         ));
-        assert!(!is_torrent_metainfo_url("https://example.test/file.torrent/next"));
+        assert!(!is_torrent_metainfo_url(
+            "https://example.test/file.torrent/next"
+        ));
         assert!(!is_torrent_metainfo_url("magnet:?xt=urn:btih:abcd"));
     }
 
@@ -2071,9 +2199,8 @@ mod tests {
     #[test]
     fn magnet_capture_review_validates_btih_before_queueing() {
         let state = review_test_state();
-        let valid = pending_capture_body(
-            "magnet:?xt=urn:btih:0123456789012345678901234567890123456789",
-        );
+        let valid =
+            pending_capture_body("magnet:?xt=urn:btih:0123456789012345678901234567890123456789");
         assert!(queue_capture_review(&state, valid, None).is_ok());
 
         let invalid = pending_capture_body("magnet:?xt=urn:btih:not-a-hash");

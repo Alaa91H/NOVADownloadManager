@@ -10,63 +10,65 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.dp
 
-private val NovaLightColors = lightColorScheme(
-    primary = Color(0xFF005AC1),
-    onPrimary = Color(0xFFFFFFFF),
-    primaryContainer = Color(0xFFD9E2FF),
-    onPrimaryContainer = Color(0xFF001A41),
-    secondary = Color(0xFF4E607D),
-    surface = Color(0xFFF9F9FF),
-    onSurface = Color(0xFF191C20),
-    surfaceVariant = Color(0xFFE0E2EC),
-    onSurfaceVariant = Color(0xFF43474E),
-    error = Color(0xFFBA1A1A),
+private fun tokenColor(value: Long) = Color(value)
+
+private fun novaLightColors(highContrast: Boolean) = lightColorScheme(
+    primary = tokenColor(if (highContrast) NOVADesignTokens.HighContrastLightAccent else NOVADesignTokens.LightAccent),
+    onPrimary = tokenColor(if (highContrast) NOVADesignTokens.HighContrastLightOnAccent else NOVADesignTokens.LightOnAccent),
+    primaryContainer = tokenColor(if (highContrast) NOVADesignTokens.HighContrastLightAccentMuted else NOVADesignTokens.LightAccentMuted),
+    onPrimaryContainer = tokenColor(if (highContrast) NOVADesignTokens.HighContrastLightTextPrimary else NOVADesignTokens.LightTextPrimary),
+    secondary = tokenColor(if (highContrast) NOVADesignTokens.HighContrastLightInfo else NOVADesignTokens.LightInfo),
+    surface = tokenColor(if (highContrast) NOVADesignTokens.HighContrastLightSurface else NOVADesignTokens.LightSurface),
+    onSurface = tokenColor(if (highContrast) NOVADesignTokens.HighContrastLightTextPrimary else NOVADesignTokens.LightTextPrimary),
+    surfaceVariant = tokenColor(if (highContrast) NOVADesignTokens.HighContrastLightSurfaceRaised else NOVADesignTokens.LightSurfaceRaised),
+    onSurfaceVariant = tokenColor(if (highContrast) NOVADesignTokens.HighContrastLightTextSecondary else NOVADesignTokens.LightTextSecondary),
+    error = tokenColor(if (highContrast) NOVADesignTokens.HighContrastLightDanger else NOVADesignTokens.LightDanger),
 )
 
-private val NovaDarkColors = darkColorScheme(
-    primary = Color(0xFFB0C6FF),
-    onPrimary = Color(0xFF002E69),
-    primaryContainer = Color(0xFF004494),
-    onPrimaryContainer = Color(0xFFD9E2FF),
-    secondary = Color(0xFFB7C8E8),
-    surface = Color(0xFF111318),
-    onSurface = Color(0xFFE1E2E9),
-    surfaceVariant = Color(0xFF43474E),
-    onSurfaceVariant = Color(0xFFC3C6D0),
-    error = Color(0xFFFFB4AB),
+private fun novaDarkColors(highContrast: Boolean) = darkColorScheme(
+    primary = tokenColor(if (highContrast) NOVADesignTokens.HighContrastDarkAccent else NOVADesignTokens.DarkAccent),
+    onPrimary = tokenColor(if (highContrast) NOVADesignTokens.HighContrastDarkOnAccent else NOVADesignTokens.DarkOnAccent),
+    primaryContainer = tokenColor(if (highContrast) NOVADesignTokens.HighContrastDarkAccentMuted else NOVADesignTokens.DarkAccentMuted),
+    onPrimaryContainer = tokenColor(if (highContrast) NOVADesignTokens.HighContrastDarkTextPrimary else NOVADesignTokens.DarkTextPrimary),
+    secondary = tokenColor(if (highContrast) NOVADesignTokens.HighContrastDarkInfo else NOVADesignTokens.DarkInfo),
+    surface = tokenColor(if (highContrast) NOVADesignTokens.HighContrastDarkSurface else NOVADesignTokens.DarkSurface),
+    onSurface = tokenColor(if (highContrast) NOVADesignTokens.HighContrastDarkTextPrimary else NOVADesignTokens.DarkTextPrimary),
+    surfaceVariant = tokenColor(if (highContrast) NOVADesignTokens.HighContrastDarkSurfaceRaised else NOVADesignTokens.DarkSurfaceRaised),
+    onSurfaceVariant = tokenColor(if (highContrast) NOVADesignTokens.HighContrastDarkTextSecondary else NOVADesignTokens.DarkTextSecondary),
+    error = tokenColor(if (highContrast) NOVADesignTokens.HighContrastDarkDanger else NOVADesignTokens.DarkDanger),
 )
 
 object NOVADimens {
-    val ScreenHorizontal: Dp = 20.dp
-    val Section: Dp = 24.dp
-    val ItemGap: Dp = 12.dp
-    val CompactGap: Dp = 8.dp
-    val MinimumTouchTarget: Dp = 48.dp
+    val ScreenHorizontal: Dp = NOVADesignTokens.ScreenHorizontal
+    val Section: Dp = NOVADesignTokens.Section
+    val ItemGap: Dp = NOVADesignTokens.ItemGap
+    val CompactGap: Dp = NOVADesignTokens.CompactGap
+    val MinimumTouchTarget: Dp = NOVADesignTokens.MinimumTouchTarget
 }
 
 object NOVAMotion {
-    const val ShortMillis: Int = 150
-    const val StandardMillis: Int = 250
+    const val ShortMillis: Int = NOVADesignTokens.MotionFastMillis
+    const val StandardMillis: Int = NOVADesignTokens.MotionStandardMillis
 }
 
 @Composable
 fun NOVATheme(
     darkTheme: Boolean,
     useDynamicColor: Boolean,
+    highContrast: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val context = LocalContext.current
     val colorScheme = when {
-        useDynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && darkTheme -> {
+        useDynamicColor && !highContrast && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && darkTheme -> {
             dynamicDarkColorScheme(context)
         }
-        useDynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+        useDynamicColor && !highContrast && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
             dynamicLightColorScheme(context)
         }
-        darkTheme -> NovaDarkColors
-        else -> NovaLightColors
+        darkTheme -> novaDarkColors(highContrast)
+        else -> novaLightColors(highContrast)
     }
 
     MaterialTheme(

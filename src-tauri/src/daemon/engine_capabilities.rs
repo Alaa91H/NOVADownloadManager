@@ -1191,12 +1191,7 @@ pub fn validate_curl_direct_options(
 pub fn native_media_status() -> Value {
     let core = nova_media_core::native_media_core_capabilities();
     let processing = nova_media_core::processing::native_media_processing_capabilities();
-    let (
-        local_codecs,
-        native_codec_registry,
-        subtitle_embed_available,
-        non_mp4_mux_available,
-    ) = {
+    let (local_codecs, native_codec_registry, subtitle_embed_available, non_mp4_mux_available) = {
         let available = nova_media_core::processing::native_media_codec_capabilities();
         let subtitle_embed_available = !available.subtitle_containers.is_empty();
         let non_mp4_mux_available = has_non_mp4_mux_pair(
@@ -1427,8 +1422,8 @@ pub fn native_torrent_status() -> Value {
     )
     .is_some();
     let ipv6_seed_listener = crate::daemon::torrent_seed::active_seed_ipv6_port().is_some();
-    let dht_ipv6_peer_announce = ipv6_seed_listener
-        && crate::daemon::torrent_dht::active_dht_ipv6_port().is_some();
+    let dht_ipv6_peer_announce =
+        ipv6_seed_listener && crate::daemon::torrent_dht::active_dht_ipv6_port().is_some();
     json!({
         "id": nova_torrent_core::ENGINE_ID,
         "name": "NOVA Torrent Engine",
@@ -1559,7 +1554,11 @@ pub fn all_engine_status(ffmpeg_bin: &str) -> Value {
         capabilities.insert("audioTranscoding".to_owned(), json!(audio_transcoding));
         capabilities.insert(
             "codecBackend".to_owned(),
-            json!(if video_transcoding || audio_transcoding { "nova-in-process-rust" } else { "none" }),
+            json!(if video_transcoding || audio_transcoding {
+                "nova-in-process-rust"
+            } else {
+                "none"
+            }),
         );
     }
     let codec_options = [
@@ -1588,8 +1587,13 @@ pub fn all_engine_status(ffmpeg_bin: &str) -> Value {
             if option == "audioFormat" || option == "audioCodec" {
                 return audio_transcoding;
             }
-            if ["bitrate", "audioBitrateBps", "audioSampleRateHz", "audioChannels"]
-                .contains(&option)
+            if [
+                "bitrate",
+                "audioBitrateBps",
+                "audioSampleRateHz",
+                "audioChannels",
+            ]
+            .contains(&option)
             {
                 return false;
             }
@@ -1629,15 +1633,76 @@ pub fn all_engine_status(ffmpeg_bin: &str) -> Value {
         .pointer("/capabilities/nonMp4MuxBackend")
         .and_then(Value::as_str)
         .is_some_and(|backend| backend == "nova-in-process-rust");
-    let post_processing_ready = audio_transcoding || video_transcoding || subtitle_embed_ready || non_mp4_mux_ready;
+    let post_processing_ready =
+        audio_transcoding || video_transcoding || subtitle_embed_ready || non_mp4_mux_ready;
     let direct_protocols = curl
         .get("protocols")
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
+    let mut command_capabilities =
+        serde_json::to_value(nova_core_model::CONTROL_PLANE_CAPABILITIES)
+            .unwrap_or_else(|_| Value::Array(Vec::new()));
+    if let Some(entries) = command_capabilities.as_array_mut() {
+        for entry in entries {
+            let id = entry.get("id").and_then(Value::as_str).unwrap_or_default();
+            let unavailable_reason = match id {
+                "addDownload" if !direct_ready => {
+                    Some("Direct download backend is unavailable in this runtime.")
+                }
+                "addMediaDownload" | "addMediaPlaylist" if !media_extraction_ready => {
+                    Some("Native media extraction is unavailable in this runtime.")
+                }
+                "addTorrent"
+                    if !torrent
+                        .get("available")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false) =>
+                {
+                    Some("Native torrent engine is unavailable in this runtime.")
+                }
+                _ => None,
+            };
+            if let Some(reason) = unavailable_reason {
+                if let Some(object) = entry.as_object_mut() {
+                    object.insert("status".to_owned(), json!("unavailable"));
+                    object.insert("note".to_owned(), json!(reason));
+                }
+            }
+        }
+    }
     json!({
         "contractVersion": nova_core_model::RUNTIME_CAPABILITIES_CONTRACT_VERSION,
         "capabilityRegistryVersion": nova_core_model::CAPABILITY_REGISTRY_CONTRACT_VERSION,
+        "controlPlaneContractVersion": nova_core_model::CONTROL_PLANE_CONTRACT_VERSION,
+        "controlPlane": {
+            "capabilityRegistryVersion": nova_core_model::CONTROL_PLANE_CAPABILITY_REGISTRY_VERSION,
+            "eventSchemaVersion": nova_core_model::CONTROL_EVENT_SCHEMA_VERSION,
+            "eventTypes": nova_core_model::CONTROL_EVENT_TYPES,
+            "eventRetention": "durable-snapshot-10000",
+            "eventCursorsSurviveRestart": true,
+            "commandsEndpoint": "/api/v1/commands",
+            "queriesEndpoint": "/api/v1/queries",
+            "idempotency": "process-local-24h",
+            "idempotencyCapacity": 4096,
+            "idempotencySurvivesRestart": false,
+            "principalModel": "local-bearer-admin",
+            "commandCapabilities": command_capabilities,
+            "queryCapabilities": [
+                {"id": "capabilities", "status": "supported"},
+                {"id": "listQueues", "status": "supported"},
+                {"id": "listProfiles", "status": "supported"},
+                {"id": "getProfile", "status": "supported"},
+                {"id": "listRules", "status": "supported"},
+                {"id": "listSchedules", "status": "supported"},
+                {"id": "getTask", "status": "supported"},
+                {"id": "listTasks", "status": "supported"},
+                {"id": "diagnostics", "status": "supported"},
+                {"id": "recentLogs", "status": "supported", "redacted": true},
+                {"id": "events", "status": "supported", "retention": "durable-snapshot-10000"}
+            ],
+            "atomicBatch": false
+        },
         "taskLifecycle": {
             "states": nova_core_model::TASK_LIFECYCLE_WIRE_STATES,
             "terminalStates": ["completed", "error"],
@@ -1696,10 +1761,14 @@ mod tests {
             status["capabilities"]["nativeCodecRegistry"]["source"],
             "nova-media-processing-core"
         );
-        assert!(status["capabilities"]["nativeCodecRegistry"]["audio"]["encodersByContainer"]
-            .is_object());
-        assert!(status["capabilities"]["nativeCodecRegistry"]["video"]["encodersByContainer"]
-            .is_object());
+        assert!(
+            status["capabilities"]["nativeCodecRegistry"]["audio"]["encodersByContainer"]
+                .is_object()
+        );
+        assert!(
+            status["capabilities"]["nativeCodecRegistry"]["video"]["encodersByContainer"]
+                .is_object()
+        );
         for key in [
             "demuxers",
             "muxers",
@@ -1796,9 +1865,19 @@ mod tests {
         assert_eq!(
             status["capabilities"]["nonMp4MuxBackend"],
             if has_non_mp4_mux_pair(
-                &serde_json::from_value::<Vec<String>>(status["capabilities"]["localCodecs"]["video"]["outputContainers"].clone()).expect("video output containers"),
-                &serde_json::from_value::<Vec<String>>(status["capabilities"]["localCodecs"]["audio"]["outputContainers"].clone()).expect("audio output containers"),
-            ) { "nova-in-process-rust" } else { "unsupported" }
+                &serde_json::from_value::<Vec<String>>(
+                    status["capabilities"]["localCodecs"]["video"]["outputContainers"].clone()
+                )
+                .expect("video output containers"),
+                &serde_json::from_value::<Vec<String>>(
+                    status["capabilities"]["localCodecs"]["audio"]["outputContainers"].clone()
+                )
+                .expect("audio output containers"),
+            ) {
+                "nova-in-process-rust"
+            } else {
+                "unsupported"
+            }
         );
         assert_eq!(
             status["capabilities"]["nonMp4MuxRequiresPostProcessingReady"],
@@ -1836,7 +1915,10 @@ mod tests {
         assert_eq!(status["mediaApi"]["download"], "/api/media/download");
         assert_eq!(status["routing"]["mediaExtraction"], "nova-media-engine");
         assert_eq!(status["routing"]["streaming"], "nova-media-engine");
-        assert_eq!(status["routing"]["postProcessing"], "nova-media-processing-core");
+        assert_eq!(
+            status["routing"]["postProcessing"],
+            "nova-media-processing-core"
+        );
     }
 
     #[test]
@@ -1981,10 +2063,7 @@ mod tests {
         assert_eq!(status["available"], false);
         assert_eq!(status["required"], false);
         assert_eq!(status["legacyOnly"], true);
-        assert_eq!(
-            status["runtimeCore"],
-            "nova-media-processing-core"
-        );
+        assert_eq!(status["runtimeCore"], "nova-media-processing-core");
         let media = native_media_status();
         assert_eq!(media["capabilities"]["hlsTaskExecution"], true);
         assert_eq!(media["capabilities"]["dashTaskExecution"], true);

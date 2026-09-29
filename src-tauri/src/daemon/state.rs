@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+use crate::daemon::command_bus::CommandBus;
 use crate::daemon::external_tools::types::ToolId;
 use crate::daemon::external_tools::ExternalToolManager;
 use crate::daemon::persist::DownloadStats;
@@ -108,6 +109,8 @@ pub struct AppState {
     pub engine_capabilities_probe: Mutex<()>,
     pub task_generation: AtomicU64,
     pub task_list_cache: RwLock<Option<(u64, Arc<Vec<Task>>)>>,
+    /// Shared command validation, permission and idempotency boundary for API adapters.
+    pub command_bus: CommandBus,
     pub event_bus: EventBus,
     pub priority_queue: PriorityBandwidthQueue,
     pub bandwidth_manager: BandwidthManager,

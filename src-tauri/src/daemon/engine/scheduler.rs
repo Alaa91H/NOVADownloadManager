@@ -13,6 +13,16 @@ pub struct SchedulerRule {
     pub action: SchedulerAction,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SchedulerRuleError {
+    InvalidId,
+    InvalidName,
+    InvalidTimeWindow,
+    AlreadyExists,
+    NotFound,
+    LockUnavailable,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum SchedulerTrigger {
@@ -277,23 +287,63 @@ impl SmartScheduler {
     }
 
     pub fn add_rule(&self, rule: SchedulerRule) {
-        if let Ok(mut rules) = self.rules.lock() {
-            rules.push(rule);
+        if let Err(error) = self.try_add_rule(rule) {
+            log::warn!("Scheduler rejected rule: {error:?}");
         }
+    }
+
+    /// Validated command-path insertion. Rules created through the shared
+    /// Control Plane must have a stable identity and may not shadow an
+    /// existing rule with the same idempotency-visible identifier.
+    pub fn try_add_rule(&self, rule: SchedulerRule) -> Result<(), SchedulerRuleError> {
+        validate_rule(&rule)?;
+        let mut rules = self
+            .rules
+            .lock()
+            .map_err(|_| SchedulerRuleError::LockUnavailable)?;
+        if rules.iter().any(|existing| existing.id == rule.id) {
+            return Err(SchedulerRuleError::AlreadyExists);
+        }
+        rules.push(rule);
+        Ok(())
     }
 
     pub fn remove_rule(&self, rule_id: &str) {
-        if let Ok(mut rules) = self.rules.lock() {
-            rules.retain(|r| r.id != rule_id);
+        if let Err(error) = self.try_remove_rule(rule_id) {
+            log::warn!("Scheduler could not remove rule: {error:?}");
         }
     }
 
+    /// Returns whether a rule was removed. Missing ids remain an idempotent
+    /// no-op for delete callers.
+    pub fn try_remove_rule(&self, rule_id: &str) -> Result<bool, SchedulerRuleError> {
+        let mut rules = self
+            .rules
+            .lock()
+            .map_err(|_| SchedulerRuleError::LockUnavailable)?;
+        let before = rules.len();
+        rules.retain(|rule| rule.id != rule_id);
+        Ok(rules.len() != before)
+    }
+
     pub fn update_rule(&self, rule: SchedulerRule) {
-        if let Ok(mut rules) = self.rules.lock() {
-            if let Some(existing) = rules.iter_mut().find(|r| r.id == rule.id) {
-                *existing = rule;
-            }
+        if let Err(error) = self.try_update_rule(rule) {
+            log::warn!("Scheduler could not update rule: {error:?}");
         }
+    }
+
+    pub fn try_update_rule(&self, rule: SchedulerRule) -> Result<(), SchedulerRuleError> {
+        validate_rule(&rule)?;
+        let mut rules = self
+            .rules
+            .lock()
+            .map_err(|_| SchedulerRuleError::LockUnavailable)?;
+        let existing = rules
+            .iter_mut()
+            .find(|existing| existing.id == rule.id)
+            .ok_or(SchedulerRuleError::NotFound)?;
+        *existing = rule;
+        Ok(())
     }
 
     /// Evaluate all enabled rules against the current download state.
@@ -398,6 +448,30 @@ impl SmartScheduler {
     pub fn rules(&self) -> Vec<SchedulerRule> {
         self.rules.lock().map(|g| g.clone()).unwrap_or_default()
     }
+}
+
+fn validate_rule(rule: &SchedulerRule) -> Result<(), SchedulerRuleError> {
+    if rule.id.trim().is_empty() || rule.id.len() > 128 || rule.id.chars().any(char::is_control) {
+        return Err(SchedulerRuleError::InvalidId);
+    }
+    if rule.name.trim().is_empty()
+        || rule.name.len() > 160
+        || rule.name.chars().any(char::is_control)
+    {
+        return Err(SchedulerRuleError::InvalidName);
+    }
+    if let SchedulerTrigger::TimeWindow {
+        start_hour,
+        start_minute,
+        end_hour,
+        end_minute,
+    } = &rule.trigger
+    {
+        if *start_hour > 23 || *end_hour > 23 || *start_minute > 59 || *end_minute > 59 {
+            return Err(SchedulerRuleError::InvalidTimeWindow);
+        }
+    }
+    Ok(())
 }
 
 impl Default for SmartScheduler {

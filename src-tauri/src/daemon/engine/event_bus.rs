@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(tag = "type", content = "data")]
+#[serde(tag = "type", content = "data", rename_all_fields = "camelCase")]
 pub enum EngineEvent {
     DownloadStarted {
         task_id: String,
@@ -109,6 +109,24 @@ pub struct TimestampedEvent {
     #[serde(skip)]
     pub timestamp: Instant,
     pub timestamp_millis: u128,
+}
+
+/// Serializable event-log state used by the daemon's atomic recovery snapshot.
+/// `next_event_id` is retained separately so clearing or rotating the log does
+/// not make clients observe duplicate cursors after a restart.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PersistedEventLog {
+    pub next_event_id: u64,
+    pub events: Vec<PersistedEngineEvent>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PersistedEngineEvent {
+    pub id: u64,
+    pub event: EngineEvent,
+    pub timestamp_millis: u64,
 }
 
 impl EngineEvent {
@@ -247,6 +265,57 @@ impl EventBus {
                 pending_events: Vec::new(),
             })),
         }
+    }
+
+    pub fn from_snapshot(max_log_size: usize, mut snapshot: PersistedEventLog) -> Self {
+        let bus = Self::new_with_capacity(max_log_size);
+        snapshot.events.sort_by_key(|event| event.id);
+        snapshot.events.dedup_by_key(|event| event.id);
+        snapshot.events.retain(|event| event.id > 0);
+        if snapshot.events.len() > max_log_size.max(1) {
+            let excess = snapshot.events.len() - max_log_size.max(1);
+            snapshot.events.drain(..excess);
+        }
+
+        if let Ok(mut inner) = bus.inner.lock() {
+            for event in snapshot.events {
+                let index = inner.event_log.len();
+                if let Some(task_id) = event.event.task_id() {
+                    inner
+                        .task_index
+                        .entry(task_id.to_owned())
+                        .or_default()
+                        .push(index);
+                }
+                inner.event_log.push(TimestampedEvent {
+                    id: event.id,
+                    event: event.event,
+                    timestamp: Instant::now(),
+                    timestamp_millis: event.timestamp_millis as u128,
+                });
+            }
+            let last_id = inner.event_log.last().map(|event| event.id).unwrap_or(0);
+            inner.next_id = snapshot.next_event_id.max(last_id.saturating_add(1)).max(1);
+        }
+        bus
+    }
+
+    pub fn snapshot(&self) -> PersistedEventLog {
+        self.inner
+            .lock()
+            .map(|inner| PersistedEventLog {
+                next_event_id: inner.next_id,
+                events: inner
+                    .event_log
+                    .iter()
+                    .map(|event| PersistedEngineEvent {
+                        id: event.id,
+                        event: event.event.clone(),
+                        timestamp_millis: event.timestamp_millis.min(u64::MAX as u128) as u64,
+                    })
+                    .collect(),
+            })
+            .unwrap_or_default()
     }
 
     pub fn publish(&self, event: EngineEvent) {

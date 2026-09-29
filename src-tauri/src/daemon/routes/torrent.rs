@@ -1,6 +1,6 @@
 use axum::body::Bytes;
 use axum::extract::{DefaultBodyLimit, Path, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::Json;
 use axum::routing::{get, patch, post};
 use axum::Router;
@@ -8,10 +8,10 @@ use serde::Deserialize;
 
 use crate::daemon::state::SharedState;
 use crate::daemon::torrent_task::{
-    analyze_magnet, analyze_metainfo, create_torrent_task, reauthorize_torrent_task,
-    torrent_task_details, update_torrent_file_priorities, update_torrent_seeding_policy,
-    AnalyzeTorrentBody, CreateTorrentBody, ReauthorizeTorrentBody, TorrentAnalysisView,
-    TorrentTaskDetails, UpdateTorrentFilesBody, UpdateTorrentSeedingBody,
+    analyze_magnet, analyze_metainfo, reauthorize_torrent_task, torrent_task_details,
+    update_torrent_file_priorities, update_torrent_seeding_policy, AnalyzeTorrentBody,
+    CreateTorrentBody, ReauthorizeTorrentBody, TorrentAnalysisView, TorrentTaskDetails,
+    UpdateTorrentFilesBody, UpdateTorrentSeedingBody,
 };
 use crate::daemon::types::Task;
 
@@ -79,12 +79,17 @@ async fn handle_analyze_torrent_url(
 
 async fn handle_create_torrent(
     State(state): State<SharedState>,
+    headers: HeaderMap,
     Json(body): Json<CreateTorrentBody>,
 ) -> Result<Json<Task>, ApiError> {
-    create_torrent_task(&state, body)
+    let idempotency_key = headers
+        .get("idempotency-key")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    super::commands::add_torrent_from_body(&state, body, idempotency_key)
         .await
         .map(Json)
-        .map_err(torrent_error)
+        .map_err(super::commands::structured_error_to_http)
 }
 
 async fn handle_torrent_details(
@@ -138,7 +143,10 @@ pub fn register_routes(router: Router<SharedState>) -> Router<SharedState> {
             post(handle_analyze_torrent_file)
                 .layer(DefaultBodyLimit::max(nova_torrent_core::MAX_METAINFO_BYTES)),
         )
-        .route("/api/torrents/analyze-url", post(handle_analyze_torrent_url))
+        .route(
+            "/api/torrents/analyze-url",
+            post(handle_analyze_torrent_url),
+        )
         .route("/api/torrents", post(handle_create_torrent))
         .route("/api/torrents/{id}", get(handle_torrent_details))
         .route(

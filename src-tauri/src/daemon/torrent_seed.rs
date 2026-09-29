@@ -106,7 +106,10 @@ pub async fn run_inbound_seed_listener(
         .as_ref()
         .and_then(|listener| listener.local_addr().ok());
     ACTIVE_TORRENT_SEED_IPV4_PORT.store(local.port(), Ordering::Release);
-    ACTIVE_TORRENT_SEED_IPV6_PORT.store(ipv6_local.map_or(0, |address| address.port()), Ordering::Release);
+    ACTIVE_TORRENT_SEED_IPV6_PORT.store(
+        ipv6_local.map_or(0, |address| address.port()),
+        Ordering::Release,
+    );
     log::info!("Native torrent IPv4 inbound seeding listener started on {local}");
 
     let slots = Arc::new(Semaphore::new(MAX_INBOUND_SEED_CONNECTIONS));
@@ -114,14 +117,7 @@ pub async fn run_inbound_seed_listener(
     let ipv4_state = state.clone();
     let ipv4_slots = slots.clone();
     let ipv4_task = tokio::spawn(async move {
-        run_seed_accept_loop(
-            ipv4_listener,
-            ipv4_state,
-            ipv4_cancel,
-            ipv4_slots,
-            "IPv4",
-        )
-        .await
+        run_seed_accept_loop(ipv4_listener, ipv4_state, ipv4_cancel, ipv4_slots, "IPv4").await
     });
     let ipv6_task = ipv6_listener.map(|listener| {
         let ipv6_cancel = cancel.child_token();
@@ -153,7 +149,10 @@ mod seed_port_tests {
     #[test]
     fn dht_peer_port_is_reported_only_for_a_bound_address_family() {
         assert_eq!(seed_port_for_family(false, Some(6881), None), Some(6881));
-        assert_eq!(seed_port_for_family(true, Some(6881), Some(6882)), Some(6882));
+        assert_eq!(
+            seed_port_for_family(true, Some(6881), Some(6882)),
+            Some(6882)
+        );
         assert_eq!(seed_port_for_family(true, Some(6881), None), None);
         assert_eq!(seed_port_for_family(false, Some(0), Some(6882)), None);
     }
@@ -1118,7 +1117,10 @@ mod tests {
 
         let mut handshake = [0u8; PEER_HANDSHAKE_LEN];
         client.read_exact(&mut handshake).await.unwrap();
-        assert_eq!(PeerHandshake::decode(&handshake).unwrap().info_hash, info_hash);
+        assert_eq!(
+            PeerHandshake::decode(&handshake).unwrap().info_hash,
+            info_hash
+        );
         assert_eq!(
             read_test_message(&mut client).await,
             PeerMessage::Bitfield(vec![0x80])

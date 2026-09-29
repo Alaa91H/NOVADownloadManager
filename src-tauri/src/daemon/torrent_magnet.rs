@@ -251,9 +251,8 @@ impl MagnetResolver {
     ) {
         let mut tasks = JoinSet::new();
         for target in targets.iter().take(16) {
-            let Some(port) = crate::daemon::torrent_seed::active_seed_port_for(
-                target.address.ip(),
-            ) else {
+            let Some(port) = crate::daemon::torrent_seed::active_seed_port_for(target.address.ip())
+            else {
                 continue;
             };
             let target = target.clone();

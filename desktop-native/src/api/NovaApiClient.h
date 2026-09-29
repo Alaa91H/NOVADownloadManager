@@ -155,6 +155,8 @@ public:
     Q_INVOKABLE void setQueuePriority(const QString &taskId, int priority);
     Q_INVOKABLE bool directOptionSupported(const QString &key) const;
     Q_INVOKABLE bool mediaOptionSupported(const QString &key) const;
+    Q_INVOKABLE QString controlPlaneCapabilityStatus(const QString &capabilityId) const;
+    Q_INVOKABLE bool controlPlaneCommandSupported(const QString &capabilityId) const;
 
     Q_INVOKABLE void refreshScheduler();
     Q_INVOKABLE void setSchedulerPowerCommandsEnabled(bool enabled);
@@ -324,6 +326,8 @@ signals:
 private:
     QNetworkRequest makeRequest(const QString &path) const;
     QNetworkRequest makeRequest(const QString &path, const QUrlQuery &query) const;
+    QNetworkReply *postControlCommand(const QString &type, const QJsonObject &fields);
+    QNetworkReply *postControlQuery(const QString &type, const QJsonObject &fields = {});
     void setConnectionState(bool connected, const QString &text);
     void runTaskAction(const QString &id, const QString &action);
     void processStreamChunk();
@@ -331,7 +335,7 @@ private:
     void setLiveUpdatesConnected(bool connected);
     void scheduleStreamReconnect();
     void mergeDownloadsDelta(const QJsonObject &delta);
-    void sendSchedulerRule(const QJsonObject &rule, const QString &path, const QString &action);
+    void sendSchedulerRule(const QJsonObject &rule, const QString &action);
     void pumpBatchRequests();
     void sendNextBatchRequest();
     void recomputeKnownQueueIds();

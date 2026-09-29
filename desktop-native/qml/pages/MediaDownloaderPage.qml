@@ -1342,6 +1342,7 @@ Item {
                 text: root.t("media.start")
                 enabled: api.connected
                     && api.engineCapabilities.mediaExtractionReady === true
+                    && api.controlPlaneCommandSupported(playlistMode ? "addMediaPlaylist" : "addMediaDownload")
                     && !api.mediaProbeBusy
                     && !api.mediaPlaylistBusy
                     && urlField.text.trim().length > 0

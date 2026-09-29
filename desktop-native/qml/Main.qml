@@ -130,7 +130,7 @@ ApplicationWindow {
         shortcut: nativeSettings.shortcutsEnabled
             ? String(nativeSettings.shortcutBindings.addDownload || "Ctrl+N")
             : ""
-        enabled: novaApi.connected
+        enabled: novaApi.connected && novaApi.controlPlaneCommandSupported("addDownload")
         onTriggered: window.openNewDownload()
     }
 

@@ -1,0 +1,140 @@
+{
+  "schemaVersion": 1,
+  "brand": {
+    "accent": "#168df7"
+  },
+  "palettes": {
+    "light": {
+      "window": "#f4f6f8",
+      "sidebar": "#ffffff",
+      "surface": "#ffffff",
+      "surfaceHover": "#edf2f7",
+      "surfaceSelected": "#dfe9f8",
+      "surfaceRaised": "#f8fafc",
+      "border": "#d9e0e8",
+      "borderStrong": "#aeb9c6",
+      "textPrimary": "#18212c",
+      "textSecondary": "#4d5b6b",
+      "textMuted": "#627187",
+      "accent": "#168df7",
+      "accentMuted": "#dce9ff",
+      "success": "#188038",
+      "warning": "#9a6700",
+      "danger": "#c62828",
+      "info": "#0061a4",
+      "focusRing": "#168df7",
+      "onAccent": "#ffffff"
+    },
+    "dark": {
+      "window": "#0d1015",
+      "sidebar": "#11151b",
+      "surface": "#151a21",
+      "surfaceHover": "#1b222c",
+      "surfaceSelected": "#202a38",
+      "surfaceRaised": "#1a2029",
+      "border": "#28313d",
+      "borderStrong": "#394657",
+      "textPrimary": "#f3f6fa",
+      "textSecondary": "#a8b1bd",
+      "textMuted": "#7f8b9b",
+      "accent": "#168df7",
+      "accentMuted": "#20345a",
+      "success": "#3fb950",
+      "warning": "#d29922",
+      "danger": "#f85149",
+      "info": "#58a6ff",
+      "focusRing": "#168df7",
+      "onAccent": "#ffffff"
+    },
+    "highContrastLight": {
+      "window": "#ffffff",
+      "sidebar": "#f7f7f7",
+      "surface": "#ffffff",
+      "surfaceHover": "#e8e8e8",
+      "surfaceSelected": "#dedede",
+      "surfaceRaised": "#fafafa",
+      "border": "#000000",
+      "borderStrong": "#000000",
+      "textPrimary": "#000000",
+      "textSecondary": "#171717",
+      "textMuted": "#303030",
+      "accent": "#0047b3",
+      "accentMuted": "#d5e4ff",
+      "success": "#006400",
+      "warning": "#754c00",
+      "danger": "#b00020",
+      "info": "#004c99",
+      "focusRing": "#0047b3",
+      "onAccent": "#ffffff"
+    },
+    "highContrastDark": {
+      "window": "#000000",
+      "sidebar": "#050505",
+      "surface": "#0a0a0a",
+      "surfaceHover": "#202020",
+      "surfaceSelected": "#282828",
+      "surfaceRaised": "#101010",
+      "border": "#ffffff",
+      "borderStrong": "#ffffff",
+      "textPrimary": "#ffffff",
+      "textSecondary": "#f0f0f0",
+      "textMuted": "#d0d0d0",
+      "accent": "#66a3ff",
+      "accentMuted": "#173d70",
+      "success": "#66ff66",
+      "warning": "#ffdf66",
+      "danger": "#ff6b6b",
+      "info": "#80c7ff",
+      "focusRing": "#66a3ff",
+      "onAccent": "#000000"
+    }
+  },
+  "spacingDp": {
+    "screenHorizontal": 20,
+    "section": 24,
+    "itemGap": 12,
+    "compactGap": 8,
+    "minimumTouchTarget": 48
+  },
+  "radiusDp": {
+    "extraSmall": 8,
+    "small": 12,
+    "medium": 16,
+    "large": 24,
+    "extraLarge": 28
+  },
+  "desktopRadiusBase": 10,
+  "typographySp": {
+    "fontTiny": 9,
+    "fontSmall": 10,
+    "fontBody": 14,
+    "fontMedium": 16,
+    "fontTitle": 22,
+    "headline": 24
+  },
+  "motionMs": {
+    "fast": 100,
+    "normal": 180,
+    "standard": 250
+  },
+  "desktopLayoutPx": {
+    "titleBarHeight": 56,
+    "navigationCollapsedWidth": 62,
+    "navigationExpandedWidth": 206,
+    "detailsWidth": 356,
+    "customizationWidth": 292,
+    "commandHeight": 52,
+    "rowHeight": 54
+  },
+  "iconSemantics": [
+    "downloads",
+    "addDownload",
+    "queue",
+    "settings",
+    "browser",
+    "media",
+    "diagnostics",
+    "share",
+    "dismiss"
+  ]
+}

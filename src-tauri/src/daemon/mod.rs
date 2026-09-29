@@ -1,4 +1,5 @@
 pub mod browser_cookies;
+pub mod command_bus;
 pub mod curl;
 pub mod diagnostics;
 pub mod direct;
@@ -54,6 +55,7 @@ use crate::daemon::types::{
     transition_task_state, CreateDownloadBody, CurlJob, NativeMediaJob, TaskState, TelegramConfig,
 };
 use crate::lock_or_err;
+use nova_core_model::Principal;
 
 use crate::daemon::engine::extractor::{ExtractorRegistry, SharedExtractorRegistry};
 use crate::daemon::engine::priority_queue::{DownloadPriority, QueueEntry};
@@ -216,12 +218,16 @@ async fn auth_middleware(
         return Ok(next.run(request).await);
     }
 
-    if let Some(auth) = request.headers().get(axum::http::header::AUTHORIZATION) {
-        if let Ok(auth_str) = auth.to_str() {
-            if auth_str.strip_prefix("Bearer ").unwrap_or("") == state.api_token {
-                return Ok(next.run(request).await);
-            }
-        }
+    let authenticated = request
+        .headers()
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|auth| auth.to_str().ok())
+        .and_then(|auth| auth.strip_prefix("Bearer "))
+        .is_some_and(|token| token == state.api_token);
+    if authenticated {
+        let mut request = request;
+        request.extensions_mut().insert(Principal::local_admin());
+        return Ok(next.run(request).await);
     }
 
     // EventSource (SSE) cannot attach an Authorization header, so also accept the
@@ -240,6 +246,8 @@ async fn auth_middleware(
                              and proxy/access logs. Prefer a fetch-based stream that sends \
                              the token in an Authorization header."
                         );
+                        let mut request = request;
+                        request.extensions_mut().insert(Principal::local_admin());
                         return Ok(next.run(request).await);
                     }
                 }
@@ -381,6 +389,35 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                     log::warn!("Failed to create data directory: {e}");
                 }
                 let restored = persist::load(&data_dir);
+                let profile_manager = crate::daemon::engine::profiles::ProfileManager::new();
+                for profile in restored.custom_profiles.iter().cloned() {
+                    if let Err(error) = profile_manager.restore_profile(profile.clone()) {
+                        log::warn!(
+                            "Ignoring invalid or reserved persisted profile {}: {error:?}",
+                            profile.id,
+                        );
+                    }
+                }
+                if let Some(active_profile_id) = restored.active_profile_id.as_deref() {
+                    if !profile_manager.set_active(active_profile_id) {
+                        log::warn!(
+                            "Persisted active profile {active_profile_id} is missing; using the default profile"
+                        );
+                    }
+                }
+                let active_profile = profile_manager.active_profile();
+                let profile_rate_limit = active_profile.rate_limit_kbps.unwrap_or(0);
+                let mut bandwidth_manager =
+                    crate::daemon::engine::bandwidth::BandwidthManager::default();
+                bandwidth_manager.set_global_limit(profile_rate_limit);
+                let priority_queue =
+                    crate::daemon::engine::priority_queue::PriorityBandwidthQueue::new(
+                        profile_rate_limit,
+                    );
+                let event_bus = crate::daemon::engine::event_bus::EventBus::from_snapshot(
+                    10_000,
+                    restored.event_log.clone(),
+                );
                 let restored_queue_catalog =
                     crate::daemon::routes::queues::normalize_restored_catalog(
                         restored.queue_catalog.clone(),
@@ -441,22 +478,19 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                     engine_capabilities_probe: Mutex::new(()),
                     task_generation: std::sync::atomic::AtomicU64::new(0),
                     task_list_cache: std::sync::RwLock::new(None),
-                    event_bus: crate::daemon::engine::event_bus::EventBus::new_with_capacity(
-                        10_000,
-                    ),
-                    priority_queue:
-                        crate::daemon::engine::priority_queue::PriorityBandwidthQueue::new(0),
-                    bandwidth_manager: crate::daemon::engine::bandwidth::BandwidthManager::default(
-                    ),
+                    command_bus: crate::daemon::command_bus::CommandBus::default(),
+                    event_bus,
+                    priority_queue,
+                    bandwidth_manager,
                     torrent_dht,
-                    profile_manager: crate::daemon::engine::profiles::ProfileManager::new(),
+                    profile_manager,
                     rule_engine: crate::daemon::engine::rules::DownloadRuleEngine::new(),
                     scheduler: crate::daemon::engine::scheduler::SmartScheduler::new(),
                     metadata_cache: crate::daemon::engine::metadata_cache::MetadataCache::with_ttl(
                         std::time::Duration::from_secs(3600),
                     ),
                     default_retry_policy: std::sync::RwLock::new(
-                        crate::daemon::engine::config::global_config().retry_policy(),
+                        active_profile.to_retry_policy(),
                     ),
                     plugin_api: crate::daemon::engine::plugin_api::PluginApi::new(),
                     engine_trackers: RwLock::new(HashMap::new()),
@@ -550,9 +584,39 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
 
                 if log::log_enabled!(log::Level::Debug) {
                     state.event_bus.subscribe(|event| {
-                        log::debug!("engine event #{}: {:?}", event.id, event.event);
+                        // Event payloads can contain source URLs and request
+                        // details. Keep debug logs structural and redacted.
+                        log::debug!("engine event #{} published", event.id);
                     });
                 }
+
+                let (notification_tx, mut notification_rx) =
+                    tokio::sync::mpsc::channel::<String>(256);
+                let notification_config_state = state.clone();
+                state.event_bus.subscribe(move |event| {
+                    let enabled = notification_config_state
+                        .telegram_config
+                        .lock()
+                        .map(|config| config.enabled && !config.token.is_empty() && config.chat_id != 0)
+                        .unwrap_or(false);
+                    if !enabled {
+                        return;
+                    }
+                    if let Some(message) =
+                        crate::daemon::telegram::format_event_notification(&event.event)
+                    {
+                        if notification_tx.try_send(message).is_err() {
+                            log::warn!("Telegram event notification queue is full; dropping one notification");
+                        }
+                    }
+                });
+                let notification_state = state.clone();
+                tokio::spawn(async move {
+                    while let Some(message) = notification_rx.recv().await {
+                        crate::daemon::telegram::telegram_notify(&notification_state, &message)
+                            .await;
+                    }
+                });
 
                 // Periodic smart-scheduler evaluation: applies time-window and
                 // bandwidth-triggered rules (pause/start/limit/notify) for real.

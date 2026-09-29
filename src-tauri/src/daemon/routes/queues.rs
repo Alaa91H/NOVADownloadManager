@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
 use axum::extract::{Path, State};
+use axum::http::HeaderMap;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -55,11 +56,17 @@ fn clean_id(value: &str) -> String {
     while result.ends_with('-') {
         result.pop();
     }
-    if result.is_empty() { "queue".to_owned() } else { result }
+    if result.is_empty() {
+        "queue".to_owned()
+    } else {
+        result
+    }
 }
 
 fn normalized_time(value: Option<&str>, fallback: &str) -> String {
-    let Some(raw) = value else { return fallback.to_owned(); };
+    let Some(raw) = value else {
+        return fallback.to_owned();
+    };
     let mut parts = raw.trim().split(':');
     let hour = parts.next().and_then(|v| v.parse::<u8>().ok());
     let minute = parts.next().and_then(|v| v.parse::<u8>().ok());
@@ -104,8 +111,15 @@ fn normalized_order(value: Option<&serde_json::Value>) -> serde_json::Value {
     serde_json::Value::Array(order)
 }
 
-fn bool_value(object: &serde_json::Map<String, serde_json::Value>, key: &str, fallback: bool) -> bool {
-    object.get(key).and_then(serde_json::Value::as_bool).unwrap_or(fallback)
+fn bool_value(
+    object: &serde_json::Map<String, serde_json::Value>,
+    key: &str,
+    fallback: bool,
+) -> bool {
+    object
+        .get(key)
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(fallback)
 }
 
 fn u64_value(
@@ -132,7 +146,12 @@ fn normalize_queue(
         .ok_or_else(|| "Queue must be a JSON object".to_owned())?;
     let id = forced_id
         .map(str::to_owned)
-        .or_else(|| object.get("id").and_then(serde_json::Value::as_str).map(clean_id))
+        .or_else(|| {
+            object
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .map(clean_id)
+        })
         .ok_or_else(|| "Queue id is required".to_owned())?;
     if id.trim().is_empty() || id.len() > 96 {
         return Err("Queue id is invalid".to_owned());
@@ -191,7 +210,11 @@ pub fn normalize_restored_catalog(values: Vec<serde_json::Value>) -> Vec<serde_j
     let mut result = Vec::new();
     let mut seen = HashSet::new();
     for value in values.into_iter().take(MAX_QUEUES) {
-        let Some(id) = value.get("id").and_then(serde_json::Value::as_str).map(str::to_owned) else {
+        let Some(id) = value
+            .get("id")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned)
+        else {
             continue;
         };
         if !seen.insert(id.clone()) {
@@ -201,7 +224,10 @@ pub fn normalize_restored_catalog(values: Vec<serde_json::Value>) -> Vec<serde_j
             result.push(queue);
         }
     }
-    if !result.iter().any(|queue| queue.get("id").and_then(serde_json::Value::as_str) == Some("main")) {
+    if !result
+        .iter()
+        .any(|queue| queue.get("id").and_then(serde_json::Value::as_str) == Some("main"))
+    {
         result.insert(0, default_queue());
     }
     result
@@ -215,12 +241,312 @@ fn catalog_response(state: &SharedState) -> serde_json::Value {
     })
 }
 
+fn queue_command_error(
+    status: StatusCode,
+    message: impl Into<String>,
+) -> nova_core_model::StructuredError {
+    let code = match status {
+        StatusCode::BAD_REQUEST => "invalid_queue_command",
+        StatusCode::NOT_FOUND => "not_found",
+        StatusCode::CONFLICT => "queue_conflict",
+        _ => "queue_command_failed",
+    };
+    nova_core_model::StructuredError::new(code, message, status.as_u16(), false)
+}
+
+pub(crate) fn list_queues_query(state: &SharedState) -> serde_json::Value {
+    catalog_response(state)
+}
+
+pub(crate) fn create_queue_service(
+    state: &SharedState,
+    name: &str,
+    task_id: Option<&str>,
+) -> Result<serde_json::Value, nova_core_model::StructuredError> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(queue_command_error(
+            StatusCode::BAD_REQUEST,
+            "Queue name cannot be empty",
+        ));
+    }
+
+    let queue = {
+        let mut catalog = lock_or_err!(state.queue_catalog);
+        if catalog.len() >= MAX_QUEUES {
+            return Err(queue_command_error(
+                StatusCode::CONFLICT,
+                "Maximum queue count reached",
+            ));
+        }
+        let mut base = clean_id(name);
+        if base.len() > 88 {
+            base.truncate(88);
+        }
+        let mut id = base.clone();
+        let mut suffix = 2u32;
+        while catalog
+            .iter()
+            .any(|queue| queue.get("id").and_then(serde_json::Value::as_str) == Some(id.as_str()))
+        {
+            id = format!("{base}-{suffix}");
+            suffix = suffix.saturating_add(1);
+        }
+        let mut value = default_queue();
+        if let Some(object) = value.as_object_mut() {
+            object.insert("id".to_owned(), serde_json::Value::from(id));
+            object.insert("name".to_owned(), serde_json::Value::from(name));
+            object.insert("active".to_owned(), serde_json::Value::Bool(false));
+        }
+        catalog.push(value.clone());
+        value
+    };
+
+    if let Some(task_id) = task_id.map(str::trim).filter(|value| !value.is_empty()) {
+        let queue_id = queue
+            .get("id")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("main");
+        if let Err(error) = set_task_queue(state, task_id, queue_id) {
+            lock_or_err!(state.queue_catalog).retain(|item| item.get("id") != queue.get("id"));
+            return Err(queue_command_error(StatusCode::NOT_FOUND, error));
+        }
+        move_order_entry(state, task_id, queue_id);
+    }
+    state.mark_dirty();
+
+    let mut response = catalog_response(state);
+    if let Some(object) = response.as_object_mut() {
+        object.insert("queue".to_owned(), queue);
+    }
+    Ok(response)
+}
+
+pub(crate) fn update_queue_service(
+    state: &SharedState,
+    queue_id: &str,
+    value: serde_json::Value,
+) -> Result<serde_json::Value, nova_core_model::StructuredError> {
+    let updated = {
+        let mut catalog = lock_or_err!(state.queue_catalog);
+        let Some(index) = catalog.iter().position(|queue| {
+            queue.get("id").and_then(serde_json::Value::as_str) == Some(queue_id)
+        }) else {
+            return Err(queue_command_error(
+                StatusCode::NOT_FOUND,
+                "Queue was not found",
+            ));
+        };
+        let existing_order = catalog[index].get("downloadOrder").cloned();
+        let updated = normalize_queue(value, Some(queue_id), existing_order.as_ref())
+            .map_err(|error| queue_command_error(StatusCode::BAD_REQUEST, error))?;
+        catalog[index] = updated.clone();
+        updated
+    };
+
+    let limit_speed = updated
+        .get("limitSpeed")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+    let speed_limit = updated
+        .get("speedLimitKbs")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let task_ids = updated
+        .get("downloadOrder")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(serde_json::Value::as_str)
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    for task_id in task_ids {
+        if limit_speed && speed_limit > 0 {
+            state.bandwidth_manager.set_task_limit(task_id, speed_limit);
+        } else {
+            state.bandwidth_manager.remove_task_limit(&task_id);
+        }
+    }
+
+    state.mark_dirty();
+    let mut response = catalog_response(state);
+    if let Some(object) = response.as_object_mut() {
+        object.insert("queue".to_owned(), updated);
+    }
+    Ok(response)
+}
+
+pub(crate) fn delete_queue_service(
+    state: &SharedState,
+    queue_id: &str,
+) -> Result<serde_json::Value, nova_core_model::StructuredError> {
+    if queue_id == "main" {
+        return Err(queue_command_error(
+            StatusCode::BAD_REQUEST,
+            "The main queue cannot be deleted",
+        ));
+    }
+    if !queue_exists(state, queue_id) {
+        return Err(queue_command_error(
+            StatusCode::NOT_FOUND,
+            "Queue was not found",
+        ));
+    }
+
+    let task_ids = lock_or_err!(state.task_snapshot)
+        .values()
+        .filter(|task| task.queue_id == queue_id)
+        .map(|task| task.id.clone())
+        .collect::<Vec<_>>();
+    for task_id in &task_ids {
+        let _ = set_task_queue(state, task_id, "main");
+    }
+
+    {
+        let mut catalog = lock_or_err!(state.queue_catalog);
+        catalog
+            .retain(|queue| queue.get("id").and_then(serde_json::Value::as_str) != Some(queue_id));
+        if let Some(main) = catalog
+            .iter_mut()
+            .find(|queue| queue.get("id").and_then(serde_json::Value::as_str) == Some("main"))
+            .and_then(serde_json::Value::as_object_mut)
+        {
+            let order = main
+                .entry("downloadOrder")
+                .or_insert_with(|| serde_json::json!([]))
+                .as_array_mut()
+                .expect("downloadOrder normalized as array");
+            let existing = order
+                .iter()
+                .filter_map(serde_json::Value::as_str)
+                .map(str::to_owned)
+                .collect::<HashSet<_>>();
+            for task_id in task_ids {
+                if !existing.contains(&task_id) {
+                    order.push(serde_json::Value::from(task_id));
+                }
+            }
+        }
+    }
+    state.mark_dirty();
+    Ok(catalog_response(state))
+}
+
+pub(crate) fn reorder_queues_service(
+    state: &SharedState,
+    queue_ids: Vec<String>,
+) -> Result<serde_json::Value, nova_core_model::StructuredError> {
+    let mut catalog = lock_or_err!(state.queue_catalog);
+    let current_ids = catalog
+        .iter()
+        .filter_map(|queue| queue.get("id").and_then(serde_json::Value::as_str))
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    let requested = queue_ids
+        .into_iter()
+        .map(|id| id.trim().to_owned())
+        .filter(|id| !id.is_empty())
+        .collect::<Vec<_>>();
+    let current_set = current_ids.iter().cloned().collect::<HashSet<_>>();
+    let requested_set = requested.iter().cloned().collect::<HashSet<_>>();
+    if current_set != requested_set || requested.len() != requested_set.len() {
+        return Err(queue_command_error(
+            StatusCode::BAD_REQUEST,
+            "queueIds must contain every queue exactly once",
+        ));
+    }
+    let mut reordered = Vec::with_capacity(catalog.len());
+    for id in requested {
+        if let Some(index) = catalog.iter().position(|queue| {
+            queue.get("id").and_then(serde_json::Value::as_str) == Some(id.as_str())
+        }) {
+            reordered.push(catalog.remove(index));
+        }
+    }
+    *catalog = reordered;
+    drop(catalog);
+    state.mark_dirty();
+    Ok(catalog_response(state))
+}
+
+pub(crate) fn reorder_queue_tasks_service(
+    state: &SharedState,
+    queue_id: &str,
+    task_ids: Vec<String>,
+) -> Result<serde_json::Value, nova_core_model::StructuredError> {
+    if !queue_exists(state, queue_id) {
+        return Err(queue_command_error(
+            StatusCode::NOT_FOUND,
+            "Queue was not found",
+        ));
+    }
+    let expected = lock_or_err!(state.task_snapshot)
+        .values()
+        .filter(|task| task.queue_id == queue_id)
+        .map(|task| task.id.clone())
+        .collect::<HashSet<_>>();
+    let requested = task_ids
+        .into_iter()
+        .map(|id| id.trim().to_owned())
+        .filter(|id| !id.is_empty())
+        .collect::<Vec<_>>();
+    let requested_set = requested.iter().cloned().collect::<HashSet<_>>();
+    if expected != requested_set || requested.len() != requested_set.len() {
+        return Err(queue_command_error(
+            StatusCode::BAD_REQUEST,
+            "taskIds must contain every task in the queue exactly once",
+        ));
+    }
+
+    let mut catalog = lock_or_err!(state.queue_catalog);
+    let Some(queue) = catalog
+        .iter_mut()
+        .find(|queue| queue.get("id").and_then(serde_json::Value::as_str) == Some(queue_id))
+        .and_then(serde_json::Value::as_object_mut)
+    else {
+        return Err(queue_command_error(
+            StatusCode::NOT_FOUND,
+            "Queue was not found",
+        ));
+    };
+    queue.insert(
+        "downloadOrder".to_owned(),
+        serde_json::Value::Array(requested.into_iter().map(serde_json::Value::from).collect()),
+    );
+    drop(catalog);
+    state.mark_dirty();
+    Ok(catalog_response(state))
+}
+
 fn error_response(status: StatusCode, message: impl Into<String>) -> Response {
-    (status, Json(serde_json::json!({"ok": false, "error": message.into()}))).into_response()
+    (
+        status,
+        Json(serde_json::json!({"ok": false, "error": message.into()})),
+    )
+        .into_response()
 }
 
 fn success_response(value: serde_json::Value) -> Response {
     (StatusCode::OK, Json(value)).into_response()
+}
+
+async fn queue_command_response(
+    state: SharedState,
+    command: nova_core_model::ControlCommand,
+    headers: HeaderMap,
+) -> Response {
+    let idempotency_key = headers
+        .get("idempotency-key")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    match crate::daemon::routes::commands::execute_legacy(&state, command, idempotency_key).await {
+        Ok(value) => success_response(value),
+        Err(error) => {
+            let status = StatusCode::from_u16(error.http_status)
+                .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+            error_response(status, error.message)
+        }
+    }
 }
 
 fn queue_exists(state: &SharedState, queue_id: &str) -> bool {
@@ -270,9 +596,10 @@ fn set_task_queue(state: &SharedState, task_id: &str, queue_id: &str) -> Result<
 fn move_order_entry(state: &SharedState, task_id: &str, queue_id: &str) {
     let mut catalog = lock_or_err!(state.queue_catalog);
     for queue in catalog.iter_mut() {
-        let Some(object) = queue.as_object_mut() else { continue; };
-        let is_target =
-            object.get("id").and_then(serde_json::Value::as_str) == Some(queue_id);
+        let Some(object) = queue.as_object_mut() else {
+            continue;
+        };
+        let is_target = object.get("id").and_then(serde_json::Value::as_str) == Some(queue_id);
         let Some(order) = object
             .get_mut("downloadOrder")
             .and_then(serde_json::Value::as_array_mut)
@@ -306,8 +633,14 @@ pub fn reconcile_state_queue_catalog(state: &SharedState) {
     let tasks = lock_or_err!(state.task_snapshot).clone();
     let mut catalog = lock_or_err!(state.queue_catalog);
     for queue in catalog.iter_mut() {
-        let Some(object) = queue.as_object_mut() else { continue; };
-        let queue_id = object.get("id").and_then(serde_json::Value::as_str).unwrap_or("main").to_owned();
+        let Some(object) = queue.as_object_mut() else {
+            continue;
+        };
+        let queue_id = object
+            .get("id")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("main")
+            .to_owned();
         let mut seen = HashSet::new();
         let mut order = object
             .get("downloadOrder")
@@ -315,7 +648,11 @@ pub fn reconcile_state_queue_catalog(state: &SharedState) {
             .into_iter()
             .flatten()
             .filter_map(serde_json::Value::as_str)
-            .filter(|task_id| tasks.get(*task_id).is_some_and(|task| task.queue_id == queue_id))
+            .filter(|task_id| {
+                tasks
+                    .get(*task_id)
+                    .is_some_and(|task| task.queue_id == queue_id)
+            })
             .filter(|task_id| seen.insert((*task_id).to_owned()))
             .map(serde_json::Value::from)
             .collect::<Vec<_>>();
@@ -363,8 +700,15 @@ fn mark_once_schedule_completed(state: &SharedState, queue_id: &str) {
     else {
         return;
     };
-    if queue.get("scheduleType").and_then(serde_json::Value::as_str) == Some("once") {
-        queue.insert("scheduleCompleted".to_owned(), serde_json::Value::Bool(true));
+    if queue
+        .get("scheduleType")
+        .and_then(serde_json::Value::as_str)
+        == Some("once")
+    {
+        queue.insert(
+            "scheduleCompleted".to_owned(),
+            serde_json::Value::Bool(true),
+        );
         queue.insert("active".to_owned(), serde_json::Value::Bool(false));
         drop(catalog);
         state.mark_dirty();
@@ -426,10 +770,14 @@ async fn fill_queue_slots(
         if slots == 0 {
             break;
         }
-        let Some(task) = snapshot.get(&task_id) else { continue; };
-        let Some(task_state) = TaskState::from_status(&task.status) else { continue; };
-        let eligible = task_state == TaskState::Queued
-            || (include_paused && task_state == TaskState::Paused);
+        let Some(task) = snapshot.get(&task_id) else {
+            continue;
+        };
+        let Some(task_state) = TaskState::from_status(&task.status) else {
+            continue;
+        };
+        let eligible =
+            task_state == TaskState::Queued || (include_paused && task_state == TaskState::Paused);
         if !eligible {
             continue;
         }
@@ -451,10 +799,7 @@ async fn pause_queue_active_tasks(state: &SharedState, queue_id: &str) -> Vec<St
     let task_ids = snapshot
         .values()
         .filter(|task| task.queue_id == queue_id)
-        .filter(|task| {
-            TaskState::from_status(&task.status)
-                .is_some_and(TaskState::is_active)
-        })
+        .filter(|task| TaskState::from_status(&task.status).is_some_and(TaskState::is_active))
         .map(|task| task.id.clone())
         .collect::<Vec<_>>();
 
@@ -479,44 +824,110 @@ fn queue_max_active(queue: &serde_json::Value) -> usize {
 pub async fn handle_queue_start(
     State(state): State<SharedState>,
     Path(queue_id): Path<String>,
+    headers: HeaderMap,
 ) -> Response {
+    let idempotency_key = headers
+        .get("idempotency-key")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    match crate::daemon::routes::commands::execute_legacy(
+        &state,
+        nova_core_model::ControlCommand::StartQueue { queue_id },
+        idempotency_key,
+    )
+    .await
+    {
+        Ok(response) => success_response(response),
+        Err(error) => {
+            crate::daemon::routes::commands::structured_error_to_http(error).into_response()
+        }
+    }
+}
+
+pub(crate) async fn start_queue_service(
+    state: &SharedState,
+    queue_id: &str,
+) -> Result<serde_json::Value, nova_core_model::StructuredError> {
     let queue = {
         let catalog = lock_or_err!(state.queue_catalog);
         catalog
             .iter()
-            .find(|queue| queue.get("id").and_then(serde_json::Value::as_str) == Some(queue_id.as_str()))
+            .find(|queue| queue.get("id").and_then(serde_json::Value::as_str) == Some(queue_id))
             .cloned()
     };
     let Some(queue) = queue else {
-        return error_response(StatusCode::NOT_FOUND, "Queue was not found");
+        return Err(nova_core_model::StructuredError::new(
+            "not_found",
+            "Queue was not found.",
+            StatusCode::NOT_FOUND.as_u16(),
+            false,
+        ));
     };
-    if let Err(error) = set_queue_active(&state, &queue_id, true) {
-        return error_response(StatusCode::NOT_FOUND, error);
+    if let Err(error) = set_queue_active(state, queue_id, true) {
+        return Err(nova_core_model::StructuredError::new(
+            "not_found",
+            error,
+            StatusCode::NOT_FOUND.as_u16(),
+            false,
+        ));
     }
-    let resumed = fill_queue_slots(&state, &queue_id, queue_max_active(&queue), true).await;
-    let mut response = catalog_response(&state);
+    let resumed = fill_queue_slots(state, queue_id, queue_max_active(&queue), true).await;
+    let mut response = catalog_response(state);
     if let Some(object) = response.as_object_mut() {
         object.insert("resumedTaskIds".to_owned(), serde_json::json!(resumed));
     }
-    success_response(response)
+    Ok(response)
 }
 
 pub async fn handle_queue_stop(
     State(state): State<SharedState>,
     Path(queue_id): Path<String>,
+    headers: HeaderMap,
 ) -> Response {
-    if !queue_exists(&state, &queue_id) {
-        return error_response(StatusCode::NOT_FOUND, "Queue was not found");
+    let idempotency_key = headers
+        .get("idempotency-key")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    match crate::daemon::routes::commands::execute_legacy(
+        &state,
+        nova_core_model::ControlCommand::StopQueue { queue_id },
+        idempotency_key,
+    )
+    .await
+    {
+        Ok(response) => success_response(response),
+        Err(error) => {
+            crate::daemon::routes::commands::structured_error_to_http(error).into_response()
+        }
     }
-    if let Err(error) = set_queue_active(&state, &queue_id, false) {
-        return error_response(StatusCode::NOT_FOUND, error);
+}
+
+pub(crate) async fn stop_queue_service(
+    state: &SharedState,
+    queue_id: &str,
+) -> Result<serde_json::Value, nova_core_model::StructuredError> {
+    if !queue_exists(state, queue_id) {
+        return Err(nova_core_model::StructuredError::new(
+            "not_found",
+            "Queue was not found.",
+            StatusCode::NOT_FOUND.as_u16(),
+            false,
+        ));
     }
-    let paused = pause_queue_active_tasks(&state, &queue_id).await;
-    let mut response = catalog_response(&state);
+    if let Err(error) = set_queue_active(state, queue_id, false) {
+        return Err(nova_core_model::StructuredError::new(
+            "not_found",
+            error,
+            StatusCode::NOT_FOUND.as_u16(),
+            false,
+        ));
+    }
+    let paused = pause_queue_active_tasks(state, queue_id).await;
+    let mut response = catalog_response(state);
     if let Some(object) = response.as_object_mut() {
         object.insert("pausedTaskIds".to_owned(), serde_json::json!(paused));
     }
-    success_response(response)
+    Ok(response)
 }
 
 /// Apply daemon-owned queue scheduling, concurrency and retry policy.
@@ -532,10 +943,15 @@ pub async fn run_queue_scheduler_tick(state: &SharedState) -> QueueTickActions {
         let Some(queue_id) = queue.get("id").and_then(serde_json::Value::as_str) else {
             continue;
         };
-        let scheduled = queue.get("scheduled").and_then(serde_json::Value::as_bool).unwrap_or(false);
+        let scheduled = queue
+            .get("scheduled")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
         let schedule_active = scheduled && queue_schedule_window_active(&queue, &now);
         let (entered, exited) = if scheduled {
-            state.scheduler.queue_window_transition(queue_id, schedule_active)
+            state
+                .scheduler
+                .queue_window_transition(queue_id, schedule_active)
         } else {
             state.scheduler.queue_window_transition(queue_id, false)
         };
@@ -552,7 +968,10 @@ pub async fn run_queue_scheduler_tick(state: &SharedState) -> QueueTickActions {
         let active = if scheduled {
             schedule_active
         } else {
-            queue.get("active").and_then(serde_json::Value::as_bool).unwrap_or(false)
+            queue
+                .get("active")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false)
         };
         if active {
             let _ = fill_queue_slots(state, queue_id, queue_max_active(&queue), entered).await;
@@ -616,9 +1035,9 @@ pub async fn run_queue_scheduler_tick(state: &SharedState) -> QueueTickActions {
             .filter(|task| task.queue_id == queue_id)
             .collect::<Vec<_>>();
         let completed = !members.is_empty()
-            && members.iter().all(|task| {
-                TaskState::from_status(&task.status) == Some(TaskState::Completed)
-            });
+            && members
+                .iter()
+                .all(|task| TaskState::from_status(&task.status) == Some(TaskState::Completed));
         if state.scheduler.queue_completion_edge(queue_id, completed) {
             completion_actions.shutdown |= queue
                 .get("shutdownOnComplete")
@@ -632,7 +1051,11 @@ pub async fn run_queue_scheduler_tick(state: &SharedState) -> QueueTickActions {
                 .get("exitOnComplete")
                 .and_then(serde_json::Value::as_bool)
                 .unwrap_or(false);
-            if queue.get("scheduleType").and_then(serde_json::Value::as_str) == Some("once") {
+            if queue
+                .get("scheduleType")
+                .and_then(serde_json::Value::as_str)
+                == Some("once")
+            {
                 mark_once_schedule_completed(state, queue_id);
             }
         }
@@ -642,7 +1065,18 @@ pub async fn run_queue_scheduler_tick(state: &SharedState) -> QueueTickActions {
 }
 
 pub async fn handle_queue_list(State(state): State<SharedState>) -> Response {
-    success_response(catalog_response(&state))
+    match crate::daemon::routes::commands::query_legacy(
+        &state,
+        nova_core_model::ControlQuery::ListQueues,
+    )
+    .await
+    {
+        Ok(value) => success_response(value),
+        Err(error) => error_response(
+            StatusCode::from_u16(error.http_status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+            error.message,
+        ),
+    }
 }
 
 #[derive(serde::Deserialize)]
@@ -654,50 +1088,18 @@ pub struct QueueCreateBody {
 
 pub async fn handle_queue_create(
     State(state): State<SharedState>,
+    headers: HeaderMap,
     Json(body): Json<QueueCreateBody>,
 ) -> Response {
-    let name = body.name.trim();
-    if name.is_empty() {
-        return error_response(StatusCode::BAD_REQUEST, "Queue name cannot be empty");
-    }
-
-    let queue = {
-        let mut catalog = lock_or_err!(state.queue_catalog);
-        if catalog.len() >= MAX_QUEUES {
-            return error_response(StatusCode::CONFLICT, "Maximum queue count reached");
-        }
-        let base = clean_id(name);
-        let mut id = base.clone();
-        let mut suffix = 2u32;
-        while catalog.iter().any(|queue| queue.get("id").and_then(serde_json::Value::as_str) == Some(id.as_str())) {
-            id = format!("{base}-{suffix}");
-            suffix = suffix.saturating_add(1);
-        }
-        let mut value = default_queue();
-        if let Some(object) = value.as_object_mut() {
-            object.insert("id".to_owned(), serde_json::Value::from(id.clone()));
-            object.insert("name".to_owned(), serde_json::Value::from(name));
-            object.insert("active".to_owned(), serde_json::Value::Bool(false));
-        }
-        catalog.push(value.clone());
-        value
-    };
-
-    if let Some(task_id) = body.task_id.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
-        let queue_id = queue.get("id").and_then(serde_json::Value::as_str).unwrap_or("main");
-        if let Err(error) = set_task_queue(&state, task_id, queue_id) {
-            lock_or_err!(state.queue_catalog).retain(|item| item.get("id") != queue.get("id"));
-            return error_response(StatusCode::NOT_FOUND, error);
-        }
-        move_order_entry(&state, task_id, queue_id);
-    }
-    state.mark_dirty();
-
-    let mut response = catalog_response(&state);
-    if let Some(object) = response.as_object_mut() {
-        object.insert("queue".to_owned(), queue);
-    }
-    success_response(response)
+    queue_command_response(
+        state,
+        nova_core_model::ControlCommand::CreateQueue {
+            name: body.name,
+            task_id: body.task_id,
+        },
+        headers,
+    )
+    .await
 }
 
 #[derive(serde::Deserialize)]
@@ -708,96 +1110,31 @@ pub struct QueueUpdateBody {
 pub async fn handle_queue_update(
     State(state): State<SharedState>,
     Path(queue_id): Path<String>,
+    headers: HeaderMap,
     Json(body): Json<QueueUpdateBody>,
 ) -> Response {
-    let mut catalog = lock_or_err!(state.queue_catalog);
-    let Some(index) = catalog
-        .iter()
-        .position(|queue| queue.get("id").and_then(serde_json::Value::as_str) == Some(queue_id.as_str()))
-    else {
-        return error_response(StatusCode::NOT_FOUND, "Queue was not found");
-    };
-    let existing_order = catalog[index].get("downloadOrder").cloned();
-    let updated = match normalize_queue(body.queue, Some(&queue_id), existing_order.as_ref()) {
-        Ok(queue) => queue,
-        Err(error) => return error_response(StatusCode::BAD_REQUEST, error),
-    };
-    catalog[index] = updated.clone();
-    drop(catalog);
-
-    let limit_speed = updated.get("limitSpeed").and_then(serde_json::Value::as_bool).unwrap_or(false);
-    let speed_limit = updated.get("speedLimitKbs").and_then(serde_json::Value::as_u64).unwrap_or(0);
-    let task_ids = updated
-        .get("downloadOrder")
-        .and_then(serde_json::Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(serde_json::Value::as_str)
-        .map(str::to_owned)
-        .collect::<Vec<_>>();
-    for task_id in task_ids {
-        if limit_speed && speed_limit > 0 {
-            state.bandwidth_manager.set_task_limit(task_id, speed_limit);
-        } else {
-            state.bandwidth_manager.remove_task_limit(&task_id);
-        }
-    }
-
-    state.mark_dirty();
-    let mut response = catalog_response(&state);
-    if let Some(object) = response.as_object_mut() {
-        object.insert("queue".to_owned(), updated);
-    }
-    success_response(response)
+    queue_command_response(
+        state,
+        nova_core_model::ControlCommand::UpdateQueue {
+            queue_id,
+            queue: body.queue,
+        },
+        headers,
+    )
+    .await
 }
 
 pub async fn handle_queue_delete(
     State(state): State<SharedState>,
     Path(queue_id): Path<String>,
+    headers: HeaderMap,
 ) -> Response {
-    if queue_id == "main" {
-        return error_response(StatusCode::BAD_REQUEST, "The main queue cannot be deleted");
-    }
-    if !queue_exists(&state, &queue_id) {
-        return error_response(StatusCode::NOT_FOUND, "Queue was not found");
-    }
-
-    let task_ids = lock_or_err!(state.task_snapshot)
-        .values()
-        .filter(|task| task.queue_id == queue_id)
-        .map(|task| task.id.clone())
-        .collect::<Vec<_>>();
-    for task_id in &task_ids {
-        let _ = set_task_queue(&state, task_id, "main");
-    }
-
-    {
-        let mut catalog = lock_or_err!(state.queue_catalog);
-        catalog.retain(|queue| queue.get("id").and_then(serde_json::Value::as_str) != Some(queue_id.as_str()));
-        if let Some(main) = catalog
-            .iter_mut()
-            .find(|queue| queue.get("id").and_then(serde_json::Value::as_str) == Some("main"))
-            .and_then(serde_json::Value::as_object_mut)
-        {
-            let order = main
-                .entry("downloadOrder")
-                .or_insert_with(|| serde_json::json!([]))
-                .as_array_mut()
-                .expect("downloadOrder normalized as array");
-            let existing = order
-                .iter()
-                .filter_map(serde_json::Value::as_str)
-                .map(str::to_owned)
-                .collect::<HashSet<_>>();
-            for task_id in task_ids {
-                if !existing.contains(&task_id) {
-                    order.push(serde_json::Value::from(task_id));
-                }
-            }
-        }
-    }
-    state.mark_dirty();
-    success_response(catalog_response(&state))
+    queue_command_response(
+        state,
+        nova_core_model::ControlCommand::DeleteQueue { queue_id },
+        headers,
+    )
+    .await
 }
 
 #[derive(serde::Deserialize)]
@@ -808,35 +1145,17 @@ pub struct QueueReorderBody {
 
 pub async fn handle_queue_reorder(
     State(state): State<SharedState>,
+    headers: HeaderMap,
     Json(body): Json<QueueReorderBody>,
 ) -> Response {
-    let mut catalog = lock_or_err!(state.queue_catalog);
-    let current_ids = catalog
-        .iter()
-        .filter_map(|queue| queue.get("id").and_then(serde_json::Value::as_str))
-        .map(str::to_owned)
-        .collect::<Vec<_>>();
-    let requested = body
-        .queue_ids
-        .into_iter()
-        .map(|id| id.trim().to_owned())
-        .filter(|id| !id.is_empty())
-        .collect::<Vec<_>>();
-    let current_set = current_ids.iter().cloned().collect::<HashSet<_>>();
-    let requested_set = requested.iter().cloned().collect::<HashSet<_>>();
-    if current_set != requested_set || requested.len() != requested_set.len() {
-        return error_response(StatusCode::BAD_REQUEST, "queueIds must contain every queue exactly once");
-    }
-    let mut reordered = Vec::with_capacity(catalog.len());
-    for id in requested {
-        if let Some(index) = catalog.iter().position(|queue| queue.get("id").and_then(serde_json::Value::as_str) == Some(id.as_str())) {
-            reordered.push(catalog.remove(index));
-        }
-    }
-    *catalog = reordered;
-    drop(catalog);
-    state.mark_dirty();
-    success_response(catalog_response(&state))
+    queue_command_response(
+        state,
+        nova_core_model::ControlCommand::ReorderQueues {
+            queue_ids: body.queue_ids,
+        },
+        headers,
+    )
+    .await
 }
 
 #[derive(serde::Deserialize)]
@@ -848,62 +1167,64 @@ pub struct QueueTaskReorderBody {
 pub async fn handle_queue_reorder_tasks(
     State(state): State<SharedState>,
     Path(queue_id): Path<String>,
+    headers: HeaderMap,
     Json(body): Json<QueueTaskReorderBody>,
 ) -> Response {
-    if !queue_exists(&state, &queue_id) {
-        return error_response(StatusCode::NOT_FOUND, "Queue was not found");
-    }
-    let expected = lock_or_err!(state.task_snapshot)
-        .values()
-        .filter(|task| task.queue_id == queue_id)
-        .map(|task| task.id.clone())
-        .collect::<HashSet<_>>();
-    let requested = body
-        .task_ids
-        .into_iter()
-        .map(|id| id.trim().to_owned())
-        .filter(|id| !id.is_empty())
-        .collect::<Vec<_>>();
-    let requested_set = requested.iter().cloned().collect::<HashSet<_>>();
-    if expected != requested_set || requested.len() != requested_set.len() {
-        return error_response(StatusCode::BAD_REQUEST, "taskIds must contain every task in the queue exactly once");
-    }
-
-    let mut catalog = lock_or_err!(state.queue_catalog);
-    let Some(queue) = catalog
-        .iter_mut()
-        .find(|queue| queue.get("id").and_then(serde_json::Value::as_str) == Some(queue_id.as_str()))
-        .and_then(serde_json::Value::as_object_mut)
-    else {
-        return error_response(StatusCode::NOT_FOUND, "Queue was not found");
-    };
-    queue.insert(
-        "downloadOrder".to_owned(),
-        serde_json::Value::Array(requested.into_iter().map(serde_json::Value::from).collect()),
-    );
-    drop(catalog);
-    state.mark_dirty();
-    success_response(catalog_response(&state))
+    queue_command_response(
+        state,
+        nova_core_model::ControlCommand::ReorderQueueTasks {
+            queue_id,
+            task_ids: body.task_ids,
+        },
+        headers,
+    )
+    .await
 }
 
 pub async fn handle_queue_move_task(
     State(state): State<SharedState>,
     Path((queue_id, task_id)): Path<(String, String)>,
+    headers: HeaderMap,
 ) -> Response {
-    if !queue_exists(&state, &queue_id) {
-        return error_response(StatusCode::NOT_FOUND, "Queue was not found");
+    let idempotency_key = headers
+        .get("idempotency-key")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    match crate::daemon::routes::commands::execute_legacy(
+        &state,
+        nova_core_model::ControlCommand::MoveTask { task_id, queue_id },
+        idempotency_key,
+    )
+    .await
+    {
+        Ok(catalog) => success_response(catalog),
+        Err(error) => {
+            crate::daemon::routes::commands::structured_error_to_http(error).into_response()
+        }
     }
-    if let Err(error) = set_task_queue(&state, &task_id, &queue_id) {
-        return error_response(StatusCode::NOT_FOUND, error);
+}
+
+/// Shared queue-move service used by legacy routes and the versioned command bus.
+pub(crate) fn move_task_to_queue(
+    state: &SharedState,
+    task_id: &str,
+    queue_id: &str,
+) -> Result<serde_json::Value, String> {
+    if !queue_exists(state, queue_id) {
+        return Err("Queue was not found".to_owned());
     }
-    move_order_entry(&state, &task_id, &queue_id);
+    set_task_queue(state, task_id, queue_id)?;
+    move_order_entry(state, task_id, queue_id);
     state.mark_dirty();
-    success_response(catalog_response(&state))
+    Ok(catalog_response(state))
 }
 
 pub fn register_routes(router: Router<SharedState>) -> Router<SharedState> {
     router
-        .route("/api/queues", get(handle_queue_list).post(handle_queue_create))
+        .route(
+            "/api/queues",
+            get(handle_queue_list).post(handle_queue_create),
+        )
         .route("/api/queues/reorder", post(handle_queue_reorder))
         .route("/api/queues/{queue_id}/start", post(handle_queue_start))
         .route("/api/queues/{queue_id}/stop", post(handle_queue_stop))
@@ -923,7 +1244,7 @@ pub fn register_routes(router: Router<SharedState>) -> Router<SharedState> {
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_restored_catalog, normalize_queue};
+    use super::{normalize_queue, normalize_restored_catalog};
 
     #[test]
     fn restored_catalog_keeps_empty_custom_queues() {
@@ -948,12 +1269,13 @@ mod tests {
                 "days":[6,6,9,0]
             }),
             Some("night"),
-            Some(&serde_json::json!(["a","b"]))
-        ).expect("valid queue");
+            Some(&serde_json::json!(["a", "b"])),
+        )
+        .expect("valid queue");
         assert_eq!(queue["maxActive"], 64);
         assert_eq!(queue["retryCount"], 9_999);
         assert_eq!(queue["retryDelay"], 1);
-        assert_eq!(queue["days"], serde_json::json!([0,6]));
-        assert_eq!(queue["downloadOrder"], serde_json::json!(["a","b"]));
+        assert_eq!(queue["days"], serde_json::json!([0, 6]));
+        assert_eq!(queue["downloadOrder"], serde_json::json!(["a", "b"]));
     }
 }

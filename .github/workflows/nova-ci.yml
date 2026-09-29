@@ -362,6 +362,12 @@ jobs:
       - name: Runtime capabilities contract
         run: node scripts/check-runtime-contract.mjs
 
+      - name: Shared design token parity
+        run: node scripts/generate-design-tokens.mjs --check
+
+      - name: Control Plane parity inventory and completion gate
+        run: node scripts/check-control-plane-parity.mjs
+
       - name: Browser Native Messaging identity contract
         run: node desktop-native/scripts/check-browser-native-contract.mjs
 

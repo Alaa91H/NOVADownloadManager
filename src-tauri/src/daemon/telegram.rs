@@ -1,4 +1,4 @@
-use axum::extract::{Path as AxumPath, State};
+use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::Json;
 use reqwest::multipart::{Form, Part};
@@ -15,10 +15,7 @@ fn escape_html(s: &str) -> String {
         .replace('>', "&gt;")
 }
 
-use crate::daemon::curl::{delete_task, list_all_tasks};
-use crate::daemon::routes::{handle_pause_task, handle_resume_task};
 use crate::daemon::state::SharedState;
-use crate::daemon::types::CreateDownloadBody;
 use crate::lock_or_err;
 
 pub async fn handle_telegram_config(State(state): State<SharedState>) -> Json<serde_json::Value> {
@@ -248,6 +245,379 @@ pub fn start_telegram_bot(state: SharedState, runtime_handle: tokio::runtime::Ha
     });
 }
 
+fn run_control_command(
+    state: &SharedState,
+    rt: &tokio::runtime::Handle,
+    command: nova_core_model::ControlCommand,
+) -> Result<serde_json::Value, String> {
+    let result = rt
+        .block_on(crate::daemon::routes::commands::execute_legacy(
+            state, command, None,
+        ))
+        .map_err(|error| error.message)?;
+    if result.get("ok").and_then(serde_json::Value::as_bool) == Some(false) {
+        return Err(result
+            .get("error")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("The runtime rejected the command.")
+            .to_owned());
+    }
+    Ok(result)
+}
+
+fn run_control_query(
+    state: &SharedState,
+    rt: &tokio::runtime::Handle,
+    query: nova_core_model::ControlQuery,
+) -> Result<serde_json::Value, String> {
+    rt.block_on(crate::daemon::routes::commands::query_legacy(state, query))
+        .map_err(|error| error.message)
+}
+
+fn parse_json_argument(arg: &str) -> Result<serde_json::Value, String> {
+    serde_json::from_str(arg.trim()).map_err(|error| format!("Invalid JSON: {error}"))
+}
+
+fn required_argument<'a>(arg: &'a str, usage: &str) -> Result<&'a str, String> {
+    let value = arg.trim();
+    if value.is_empty() {
+        Err(format!("Usage: {usage}"))
+    } else {
+        Ok(value)
+    }
+}
+
+fn item_summary(item: &serde_json::Value) -> String {
+    let id = item
+        .get("id")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("unknown");
+    let name = item
+        .get("name")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or(id);
+    let enabled = item
+        .get("enabled")
+        .or_else(|| item.get("active"))
+        .and_then(serde_json::Value::as_bool)
+        .map(|value| if value { "enabled" } else { "disabled" })
+        .unwrap_or("");
+    format!(
+        "• <code>{}</code> — {} {}",
+        escape_html(id),
+        escape_html(name),
+        enabled
+    )
+}
+
+fn list_reply(value: &serde_json::Value, key: &str, title: &str) -> String {
+    let Some(items) = value.get(key).and_then(serde_json::Value::as_array) else {
+        return format!("{title}: no data returned.");
+    };
+    if items.is_empty() {
+        return format!("{title}: none.");
+    }
+    let mut reply = format!("{title} ({})\n", items.len());
+    for item in items.iter().take(40) {
+        reply.push_str(&item_summary(item));
+        reply.push('\n');
+    }
+    if items.len() > 40 {
+        reply.push_str(&format!("… and {} more", items.len() - 40));
+    }
+    reply
+}
+
+fn handle_extended_control_command(
+    state: &SharedState,
+    rt: &tokio::runtime::Handle,
+    cmd: &str,
+    arg: &str,
+) -> Option<String> {
+    use nova_core_model::{ControlCommand as Command, ControlQuery as Query};
+
+    let response: Option<Result<String, String>> = match cmd {
+        "/queues" | "/queue-list" => Some(
+            run_control_query(state, rt, Query::ListQueues)
+                .map(|value| list_reply(&value, "queues", "Queues")),
+        ),
+        "/queue-create" => Some(
+            required_argument(arg, "/queue-create <name>").and_then(|name| {
+                run_control_command(
+                    state,
+                    rt,
+                    Command::CreateQueue {
+                        name: name.to_owned(),
+                        task_id: None,
+                    },
+                )
+                .map(|value| {
+                    let id = value
+                        .pointer("/queue/id")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("created");
+                    format!("Queue created: <code>{}</code>", escape_html(id))
+                })
+            }),
+        ),
+        "/queue-update" => Some((|| {
+            let mut parts = arg.trim().splitn(2, char::is_whitespace);
+            let queue_id = parts.next().unwrap_or("");
+            let request = parts.next().unwrap_or("").trim();
+            if queue_id.is_empty() || request.is_empty() {
+                return Err("Usage: /queue-update <queue> <queue JSON>".to_owned());
+            }
+            let queue = parse_json_argument(request)?;
+            run_control_command(
+                state,
+                rt,
+                Command::UpdateQueue {
+                    queue_id: queue_id.to_owned(),
+                    queue,
+                },
+            )?;
+            Ok(format!(
+                "Queue updated: <code>{}</code>",
+                escape_html(queue_id)
+            ))
+        })()),
+        "/queue-delete" => Some(
+            required_argument(arg, "/queue-delete <queue>").and_then(|id| {
+                run_control_command(
+                    state,
+                    rt,
+                    Command::DeleteQueue {
+                        queue_id: id.to_owned(),
+                    },
+                )
+                .map(|_| format!("Queue deleted: <code>{}</code>", escape_html(id)))
+            }),
+        ),
+        "/queue-order" => Some(required_argument(arg, "/queue-order <id,id,...>").and_then(
+            |ids| {
+                run_control_command(
+                    state,
+                    rt,
+                    Command::ReorderQueues {
+                        queue_ids: ids.split(',').map(str::trim).map(str::to_owned).collect(),
+                    },
+                )
+                .map(|_| "Queue order updated.".to_owned())
+            },
+        )),
+        "/queue-task-order" => Some((|| {
+            let mut parts = arg.trim().splitn(2, char::is_whitespace);
+            let queue_id = parts.next().unwrap_or("");
+            let ids = parts.next().unwrap_or("").trim();
+            if queue_id.is_empty() || ids.is_empty() {
+                return Err("Usage: /queue-task-order <queue> <task-id,task-id,...>".to_owned());
+            }
+            run_control_command(
+                state,
+                rt,
+                Command::ReorderQueueTasks {
+                    queue_id: queue_id.to_owned(),
+                    task_ids: ids.split(',').map(str::trim).map(str::to_owned).collect(),
+                },
+            )?;
+            Ok(format!(
+                "Task order updated for <code>{}</code>.",
+                escape_html(queue_id)
+            ))
+        })()),
+        "/profiles" | "/profile" => Some(run_control_query(state, rt, Query::ListProfiles).map(
+            |value| {
+                let active = value
+                    .get("active_profile")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("unknown");
+                format!(
+                    "Active profile: <code>{}</code>\n{}",
+                    escape_html(active),
+                    list_reply(&value, "profiles", "Profiles")
+                )
+            },
+        )),
+        "/profile-set" => Some(
+            required_argument(arg, "/profile-set <profile-id>").and_then(|id| {
+                run_control_command(
+                    state,
+                    rt,
+                    Command::SetActiveProfile {
+                        profile_id: id.to_owned(),
+                    },
+                )
+                .map(|_| format!("Active profile set to <code>{}</code>.", escape_html(id)))
+            }),
+        ),
+        "/profile-upsert" => Some(parse_json_argument(arg).and_then(|request| {
+            run_control_command(state, rt, Command::UpsertProfile { request }).map(|value| {
+                format!(
+                    "Profile saved: <code>{}</code>",
+                    escape_html(
+                        value
+                            .get("profile_id")
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or("unknown")
+                    )
+                )
+            })
+        })),
+        "/profile-delete" => Some(
+            required_argument(arg, "/profile-delete <profile-id>").and_then(|id| {
+                run_control_command(
+                    state,
+                    rt,
+                    Command::DeleteProfile {
+                        profile_id: id.to_owned(),
+                    },
+                )
+                .map(|_| format!("Profile deleted: <code>{}</code>.", escape_html(id)))
+            }),
+        ),
+        "/rules" => Some(
+            run_control_query(state, rt, Query::ListRules)
+                .map(|value| list_reply(&value, "rules", "Download rules")),
+        ),
+        "/rule-add" => Some(parse_json_argument(arg).and_then(|request| {
+            run_control_command(state, rt, Command::AddRule { request }).map(|value| {
+                format!(
+                    "Rule added: <code>{}</code>",
+                    escape_html(
+                        value
+                            .get("rule_id")
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or("unknown")
+                    )
+                )
+            })
+        })),
+        "/rule-delete" => Some(
+            required_argument(arg, "/rule-delete <rule-id>").and_then(|id| {
+                run_control_command(
+                    state,
+                    rt,
+                    Command::DeleteRule {
+                        rule_id: id.to_owned(),
+                    },
+                )
+                .map(|_| format!("Rule deleted: <code>{}</code>.", escape_html(id)))
+            }),
+        ),
+        "/schedules" => Some(
+            run_control_query(state, rt, Query::ListSchedules)
+                .map(|value| list_reply(&value, "rules", "Schedules")),
+        ),
+        "/schedule-add" | "/schedule-update" => {
+            Some(parse_json_argument(arg).and_then(|request| {
+                let command = if cmd == "/schedule-add" {
+                    Command::AddSchedule { request }
+                } else {
+                    Command::UpdateSchedule { request }
+                };
+                run_control_command(state, rt, command).map(|value| {
+                    let id = value
+                        .get("rule_id")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("unknown");
+                    format!("Schedule saved: <code>{}</code>", escape_html(id))
+                })
+            }))
+        }
+        "/schedule-delete" => Some(
+            required_argument(arg, "/schedule-delete <schedule-id>").and_then(|id| {
+                run_control_command(
+                    state,
+                    rt,
+                    Command::DeleteSchedule {
+                        schedule_id: id.to_owned(),
+                    },
+                )
+                .map(|_| format!("Schedule deleted: <code>{}</code>.", escape_html(id)))
+            }),
+        ),
+        "/scheduler-power" => Some(match arg.trim().to_ascii_lowercase().as_str() {
+            "on" | "true" => run_control_command(
+                state,
+                rt,
+                Command::SetSchedulerPowerCommands { enabled: true },
+            )
+            .map(|_| "Scheduler power actions enabled.".to_owned()),
+            "off" | "false" => run_control_command(
+                state,
+                rt,
+                Command::SetSchedulerPowerCommands { enabled: false },
+            )
+            .map(|_| "Scheduler power actions disabled.".to_owned()),
+            _ => Err("Usage: /scheduler-power on|off".to_owned()),
+        }),
+        "/media-playlist" => Some(parse_json_argument(arg).and_then(|request| {
+            run_control_command(state, rt, Command::AddMediaPlaylist { request }).map(|value| {
+                format!(
+                    "Playlist queued ({} items).",
+                    value
+                        .get("count")
+                        .and_then(serde_json::Value::as_u64)
+                        .unwrap_or(0)
+                )
+            })
+        })),
+        "/torrent-add" => Some(parse_json_argument(arg).and_then(|request| {
+            run_control_command(state, rt, Command::AddTorrent { request }).map(|value| {
+                format!(
+                    "Torrent task added: {}",
+                    escape_html(
+                        value
+                            .get("name")
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or("task")
+                    )
+                )
+            })
+        })),
+        "/batch" => Some(parse_json_argument(arg).and_then(|value| {
+            let commands: Vec<Command> = serde_json::from_value(value)
+                .map_err(|error| format!("Batch must be a JSON array of commands: {error}"))?;
+            run_control_command(
+                state,
+                rt,
+                Command::Batch {
+                    mode: nova_core_model::BatchMode::BestEffort,
+                    commands,
+                },
+            )
+            .map(|value| {
+                format!(
+                    "Batch finished: {} succeeded, {} failed.",
+                    value
+                        .get("succeeded")
+                        .and_then(serde_json::Value::as_u64)
+                        .unwrap_or(0),
+                    value
+                        .get("failed")
+                        .and_then(serde_json::Value::as_u64)
+                        .unwrap_or(0)
+                )
+            })
+        })),
+        "/capabilities" => Some(
+            run_control_query(state, rt, Query::Capabilities).map(|value| {
+                let capabilities = value
+                    .pointer("/controlPlane/commandCapabilities")
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!([]));
+                format!(
+                    "Runtime capabilities:\n{}",
+                    escape_html(&capabilities.to_string())
+                )
+            }),
+        ),
+        _ => None,
+    };
+
+    response.map(|result| result.unwrap_or_else(|error| format!("Failed: {}", escape_html(&error))))
+}
+
 fn handle_telegram_command(
     state: &SharedState,
     api_base: &str,
@@ -258,27 +628,88 @@ fn handle_telegram_command(
 ) {
     let text = text.trim();
     if text.starts_with('/') {
-        let parts: Vec<&str> = text.splitn(2, ' ').collect();
-        let cmd = parts[0];
-        let arg = parts.get(1).copied().unwrap_or("");
+        let mut parts = text.splitn(2, char::is_whitespace);
+        let cmd = parts.next().unwrap_or("").split('@').next().unwrap_or("");
+        let arg = parts.next().unwrap_or("").trim_start();
+
+        if let Some(reply) = handle_extended_control_command(state, rt, cmd, arg) {
+            send_telegram_msg_blocking_with_api(api_base, token, chat_id, &reply);
+            return;
+        }
 
         match cmd {
             "/start" | "/help" => {
                 let help = "NOVA Bot Commands:\n".to_owned()
                     + "/list - List all downloads\n"
                     + "/add <url> - Add download\n"
+                    + "/media <url> - Add a native media download\n"
                     + "/pause <id> - Pause download\n"
                     + "/resume <id> - Resume download\n"
+                    + "/retry <id> - Retry a failed download\n"
                     + "/delete <id> - Delete download\n"
+                    + "/move <id> <queue> - Move a download to a queue\n"
+                    + "/priority <id> <0-4> - Set download priority\n"
+                    + "/queue-start <queue> - Start a queue\n"
+                    + "/queue-stop <queue> - Stop a queue\n"
+                    + "/queues, /profiles, /rules, /schedules - List policy state\n"
+                    + "/queue-create|queue-delete|queue-update <...> - Manage queues\n"
+                    + "/profile-set|profile-upsert|profile-delete <...> - Manage profiles\n"
+                    + "/rule-add|rule-delete <...> - Manage rules\n"
+                    + "/schedule-add|schedule-update|schedule-delete <...> - Manage schedules\n"
+                    + "/scheduler-power on|off - Allow scheduler power actions\n"
+                    + "/media-playlist <JSON> - Add a native media playlist\n"
+                    + "/torrent-add <JSON> - Create an analyzed torrent task\n"
+                    + "/batch <JSON> - Run a best-effort command batch\n"
                     + "/help - Show this help";
                 send_telegram_msg_blocking_with_api(api_base, token, chat_id, &help);
             }
             "/list" => {
-                let tasks = rt.block_on(list_all_tasks(state));
-                if tasks.is_empty() {
+                let page = rt.block_on(crate::daemon::routes::commands::query_legacy(
+                    state,
+                    nova_core_model::ControlQuery::ListTasks {
+                        filter: nova_core_model::TaskQueryFilter {
+                            limit: Some(100),
+                            ..Default::default()
+                        },
+                    },
+                ));
+                let page = match page {
+                    Ok(page) => page,
+                    Err(error) => {
+                        send_telegram_msg_blocking_with_api(
+                            api_base,
+                            token,
+                            chat_id,
+                            &format!("Could not list downloads: {}", escape_html(&error.message)),
+                        );
+                        return;
+                    }
+                };
+                let items = page
+                    .get("items")
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!([]));
+                let tasks: Vec<nova_core_model::Task> = match serde_json::from_value(items) {
+                    Ok(tasks) => tasks,
+                    Err(error) => {
+                        log::error!("Control Plane task query returned invalid data: {error}");
+                        send_telegram_msg_blocking_with_api(
+                            api_base,
+                            token,
+                            chat_id,
+                            "Could not read the downloads list.",
+                        );
+                        return;
+                    }
+                };
+                let total = page
+                    .get("total")
+                    .and_then(serde_json::Value::as_u64)
+                    .unwrap_or(tasks.len() as u64) as usize;
+                if total == 0 {
                     send_telegram_msg_blocking_with_api(api_base, token, chat_id, "No downloads.");
                 } else {
-                    let mut msg = format!("Downloads ({})\n\n", tasks.len());
+                    let mut msg = format!("Downloads ({total})\n\n");
                     for t in tasks.iter().take(20) {
                         let icon = match t.status.as_str() {
                             "downloading" => "⬇\u{fe0f}",
@@ -300,8 +731,8 @@ fn handle_telegram_command(
                             pct
                         ));
                     }
-                    if tasks.len() > 20 {
-                        msg.push_str(&format!("\n... and {} more", tasks.len() - 20));
+                    if total > 20 {
+                        msg.push_str(&format!("\n... and {} more", total - 20));
                     }
                     send_telegram_msg_blocking_with_api(api_base, token, chat_id, &msg);
                 }
@@ -325,29 +756,25 @@ fn handle_telegram_command(
                     );
                     return;
                 }
-                let body = CreateDownloadBody {
-                    url: Some(arg.to_owned()),
-                    name: None,
-                    file_type: None,
-                    size_bytes: None,
-                    category: None,
-                    queue_id: None,
-                    connections: None,
-                    resumable: None,
-                    save_path: None,
-                    description: None,
-                    referer: None,
-                    start_immediately: Some(true),
-                    direct_options: None,
-                    media_options: None,
+                let command = nova_core_model::ControlCommand::AddDownload {
+                    request: serde_json::json!({
+                        "url": arg,
+                        "startImmediately": true,
+                    }),
                 };
-                match rt.block_on(crate::daemon::curl::create_curl_task(state, &body)) {
-                    Ok(task) => {
+                match rt.block_on(crate::daemon::routes::commands::execute_legacy(
+                    state, command, None,
+                )) {
+                    Ok(result) => {
+                        let name = result
+                            .get("name")
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or(arg);
                         send_telegram_msg_blocking_with_api(
                             api_base,
                             token,
                             chat_id,
-                            &format!("Added: {}", task.name),
+                            &format!("Added: {}", escape_html(name)),
                         );
                     }
                     Err(e) => {
@@ -355,9 +782,58 @@ fn handle_telegram_command(
                             api_base,
                             token,
                             chat_id,
-                            &format!("Failed: {e}"),
+                            &format!("Failed: {}", escape_html(&e.message)),
                         );
                     }
+                }
+            }
+            "/media" => {
+                if arg.trim().is_empty() {
+                    send_telegram_msg_blocking_with_api(
+                        api_base,
+                        token,
+                        chat_id,
+                        "Usage: /media <url>",
+                    );
+                    return;
+                }
+                if let Err(error) = crate::daemon::utils::is_safe_target_url(arg.trim()) {
+                    send_telegram_msg_blocking_with_api(
+                        api_base,
+                        token,
+                        chat_id,
+                        &format!("Blocked: {}", escape_html(&error)),
+                    );
+                    return;
+                }
+                let command = nova_core_model::ControlCommand::AddMediaDownload {
+                    request: serde_json::json!({
+                        "url": arg.trim(),
+                        "startImmediately": true,
+                        "mediaOptions": {},
+                    }),
+                };
+                match rt.block_on(crate::daemon::routes::commands::execute_legacy(
+                    state, command, None,
+                )) {
+                    Ok(result) => {
+                        let name = result
+                            .get("name")
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or(arg.trim());
+                        send_telegram_msg_blocking_with_api(
+                            api_base,
+                            token,
+                            chat_id,
+                            &format!("Media added: {}", escape_html(name)),
+                        );
+                    }
+                    Err(error) => send_telegram_msg_blocking_with_api(
+                        api_base,
+                        token,
+                        chat_id,
+                        &format!("Failed: {}", escape_html(&error.message)),
+                    ),
                 }
             }
             "/pause" | "/resume" | "/delete" => {
@@ -371,65 +847,173 @@ fn handle_telegram_command(
                     return;
                 }
                 match cmd {
-                    "/pause" => {
-                        let result = rt.block_on(async {
-                            handle_pause_task(State(state.clone()), AxumPath(arg.to_owned())).await
-                        });
-                        let _ = match result {
+                    "/pause" | "/resume" | "/delete" => {
+                        let command = match cmd {
+                            "/pause" => nova_core_model::ControlCommand::PauseTask {
+                                task_id: arg.trim().to_owned(),
+                            },
+                            "/resume" => nova_core_model::ControlCommand::ResumeTask {
+                                task_id: arg.trim().to_owned(),
+                            },
+                            _ => nova_core_model::ControlCommand::DeleteTask {
+                                task_id: arg.trim().to_owned(),
+                                delete_files: false,
+                            },
+                        };
+                        match run_control_command(state, rt, command) {
                             Ok(_) => send_telegram_msg_blocking_with_api(
                                 api_base,
                                 token,
                                 chat_id,
-                                &format!("Paused: {arg}"),
+                                &format!("{}: {}", cmd.trim_start_matches('/'), arg.trim()),
                             ),
-                            Err(e) => send_telegram_msg_blocking_with_api(
+                            Err(error) => send_telegram_msg_blocking_with_api(
                                 api_base,
                                 token,
                                 chat_id,
-                                e.1 .0
-                                    .get("error")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("unknown"),
+                                &format!("Failed: {}", escape_html(&error)),
                             ),
-                        };
-                    }
-                    "/resume" => {
-                        let result = rt.block_on(async {
-                            handle_resume_task(State(state.clone()), AxumPath(arg.to_owned())).await
-                        });
-                        let _ = match result {
-                            Ok(_) => send_telegram_msg_blocking_with_api(
-                                api_base,
-                                token,
-                                chat_id,
-                                &format!("Resumed: {arg}"),
-                            ),
-                            Err(e) => send_telegram_msg_blocking_with_api(
-                                api_base,
-                                token,
-                                chat_id,
-                                e.1 .0
-                                    .get("error")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("unknown"),
-                            ),
-                        };
-                    }
-                    "/delete" => {
-                        let result = rt.block_on(async { delete_task(state, arg, false).await });
-                        let _ = match result {
-                            Ok(()) => send_telegram_msg_blocking_with_api(
-                                api_base,
-                                token,
-                                chat_id,
-                                &format!("Removed from list: {arg}"),
-                            ),
-                            Err(e) => {
-                                send_telegram_msg_blocking_with_api(api_base, token, chat_id, &e)
-                            }
-                        };
+                        }
                     }
                     _ => {}
+                }
+            }
+            "/retry" => {
+                if arg.trim().is_empty() {
+                    send_telegram_msg_blocking_with_api(
+                        api_base,
+                        token,
+                        chat_id,
+                        "Usage: /retry <id>",
+                    );
+                    return;
+                }
+                match rt.block_on(crate::daemon::routes::commands::execute_legacy(
+                    state,
+                    nova_core_model::ControlCommand::RetryTask {
+                        task_id: arg.trim().to_owned(),
+                    },
+                    None,
+                )) {
+                    Ok(_) => send_telegram_msg_blocking_with_api(
+                        api_base,
+                        token,
+                        chat_id,
+                        &format!("Retry requested: {}", arg.trim()),
+                    ),
+                    Err(error) => send_telegram_msg_blocking_with_api(
+                        api_base,
+                        token,
+                        chat_id,
+                        &format!("Failed: {}", escape_html(&error.message)),
+                    ),
+                }
+            }
+            "/queue-start" | "/queue-stop" => {
+                let queue_id = arg.trim();
+                if queue_id.is_empty() {
+                    send_telegram_msg_blocking_with_api(
+                        api_base,
+                        token,
+                        chat_id,
+                        &format!("Usage: {cmd} <queue>"),
+                    );
+                    return;
+                }
+                let command = if cmd == "/queue-start" {
+                    nova_core_model::ControlCommand::StartQueue {
+                        queue_id: queue_id.to_owned(),
+                    }
+                } else {
+                    nova_core_model::ControlCommand::StopQueue {
+                        queue_id: queue_id.to_owned(),
+                    }
+                };
+                match rt.block_on(crate::daemon::routes::commands::execute_legacy(
+                    state, command, None,
+                )) {
+                    Ok(_) => send_telegram_msg_blocking_with_api(
+                        api_base,
+                        token,
+                        chat_id,
+                        &format!(
+                            "Queue {}: {queue_id}",
+                            if cmd == "/queue-start" {
+                                "started"
+                            } else {
+                                "stopped"
+                            }
+                        ),
+                    ),
+                    Err(error) => send_telegram_msg_blocking_with_api(
+                        api_base,
+                        token,
+                        chat_id,
+                        &format!("Failed: {}", escape_html(&error.message)),
+                    ),
+                }
+            }
+            "/move" | "/priority" => {
+                let mut args = arg.split_whitespace();
+                let Some(task_id) = args.next() else {
+                    send_telegram_msg_blocking_with_api(
+                        api_base,
+                        token,
+                        chat_id,
+                        &format!(
+                            "Usage: {cmd} <id> {}",
+                            if cmd == "/move" { "<queue>" } else { "<0-4>" }
+                        ),
+                    );
+                    return;
+                };
+                let Some(value) = args.next() else {
+                    send_telegram_msg_blocking_with_api(
+                        api_base,
+                        token,
+                        chat_id,
+                        &format!(
+                            "Usage: {cmd} <id> {}",
+                            if cmd == "/move" { "<queue>" } else { "<0-4>" }
+                        ),
+                    );
+                    return;
+                };
+                let command = if cmd == "/move" {
+                    nova_core_model::ControlCommand::MoveTask {
+                        task_id: task_id.to_owned(),
+                        queue_id: value.to_owned(),
+                    }
+                } else {
+                    let Ok(priority) = value.parse::<u32>() else {
+                        send_telegram_msg_blocking_with_api(
+                            api_base,
+                            token,
+                            chat_id,
+                            "Priority must be a number from 0 to 4.",
+                        );
+                        return;
+                    };
+                    nova_core_model::ControlCommand::SetTaskPriority {
+                        task_id: task_id.to_owned(),
+                        priority,
+                    }
+                };
+                match rt.block_on(crate::daemon::routes::commands::execute_legacy(
+                    state, command, None,
+                )) {
+                    Ok(_) => send_telegram_msg_blocking_with_api(
+                        api_base,
+                        token,
+                        chat_id,
+                        &format!("Updated {task_id}."),
+                    ),
+                    Err(error) => send_telegram_msg_blocking_with_api(
+                        api_base,
+                        token,
+                        chat_id,
+                        &format!("Failed: {}", escape_html(&error.message)),
+                    ),
                 }
             }
             _ => {
@@ -461,6 +1045,37 @@ pub async fn telegram_notify(state: &SharedState, text: &str) {
             text,
         )
         .await;
+    }
+}
+
+/// Telegram is a notification adapter over Runtime events; it does not invoke
+/// download services or interpret user commands here.
+pub(crate) fn format_event_notification(
+    event: &crate::daemon::engine::event_bus::EngineEvent,
+) -> Option<String> {
+    use crate::daemon::engine::event_bus::EngineEvent;
+    match event {
+        EngineEvent::DownloadComplete {
+            task_id,
+            total_bytes,
+            ..
+        } => Some(format!(
+            "NOVA download completed: {task_id} ({total_bytes} bytes)."
+        )),
+        EngineEvent::DownloadFailed {
+            task_id,
+            will_retry,
+            retry_in_secs,
+            ..
+        } => Some(if *will_retry {
+            format!(
+                "NOVA download failed and will retry: {task_id} (in {} seconds).",
+                retry_in_secs.unwrap_or_default()
+            )
+        } else {
+            format!("NOVA download failed: {task_id}.")
+        }),
+        _ => None,
     }
 }
 

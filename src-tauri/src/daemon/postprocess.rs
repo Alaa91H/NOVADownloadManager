@@ -60,12 +60,8 @@ pub fn transcode_with_native_codecs(
     let progress_sink = |update: &MediaProcessingProgress| {
         on_progress(update.fraction.map(f64::from));
     };
-    let result = nova_media_core::processing::transcode_local_media(
-        &job,
-        control,
-        &progress_sink,
-    )
-    .map_err(map_native_media_error)?;
+    let result = nova_media_core::processing::transcode_local_media(&job, control, &progress_sink)
+        .map_err(map_native_media_error)?;
     Ok(result.output_bytes)
 }
 
@@ -105,12 +101,9 @@ pub fn embed_subtitles_with_native_codecs(
     let progress_sink = |update: &MediaProcessingProgress| {
         on_progress(update.fraction.map(f64::from));
     };
-    let result = nova_media_core::processing::embed_local_media_subtitles(
-        &job,
-        control,
-        &progress_sink,
-    )
-    .map_err(map_native_media_error)?;
+    let result =
+        nova_media_core::processing::embed_local_media_subtitles(&job, control, &progress_sink)
+            .map_err(map_native_media_error)?;
     if request.cleanup_sidecars {
         for subtitle in &request.subtitles {
             let _ = std::fs::remove_file(&subtitle.path);
@@ -125,9 +118,18 @@ fn native_transcode_job(
     let input_container = request
         .input_container
         .as_deref()
-        .or_else(|| request.media_path.extension().and_then(|value| value.to_str()))
+        .or_else(|| {
+            request
+                .media_path
+                .extension()
+                .and_then(|value| value.to_str())
+        })
         .filter(|value| !value.trim().is_empty())
-        .ok_or_else(|| PostProcessError::InvalidInput("source container is required for local conversion".to_owned()))?
+        .ok_or_else(|| {
+            PostProcessError::InvalidInput(
+                "source container is required for local conversion".to_owned(),
+            )
+        })?
         .to_owned();
     Ok(nova_media_core::processing::NativeMediaTranscodeJob {
         source: request.media_path.clone(),
@@ -272,8 +274,9 @@ mod tests {
 
     #[test]
     fn validation_rejects_network_urls_as_media_paths() {
-        let error = validate_transcode_request(&request("https://example.test/media.mp4", true, true))
-            .expect_err("the native codec backend only accepts local paths");
+        let error =
+            validate_transcode_request(&request("https://example.test/media.mp4", true, true))
+                .expect_err("the native codec backend only accepts local paths");
         assert!(matches!(error, PostProcessError::InvalidInput(_)));
     }
 }

@@ -599,14 +599,18 @@ Dialog {
             Button {
                 visible: root.analysisReady
                 text: root.t("torrent.queue")
-                enabled: !root.creating && root.selectedFileCount > 0
+                enabled: !root.creating
+                    && root.api.controlPlaneCommandSupported("addTorrent")
+                    && root.selectedFileCount > 0
                 onClicked: root.createTorrent(false)
             }
 
             Button {
                 visible: root.analysisReady
                 text: root.creating ? root.t("torrent.adding") : root.t("torrent.start")
-                enabled: !root.creating && root.selectedFileCount > 0
+                enabled: !root.creating
+                    && root.api.controlPlaneCommandSupported("addTorrent")
+                    && root.selectedFileCount > 0
                 onClicked: root.createTorrent(true)
 
                 background: Rectangle {

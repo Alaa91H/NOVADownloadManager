@@ -10,6 +10,23 @@
 
 **Spec:** [`docs/architecture/NOVA_UNIFIED_CONTROL_PLANE_AR.md`](../../architecture/NOVA_UNIFIED_CONTROL_PLANE_AR.md)
 
+## سجل التنفيذ الحالي — 2026-09-29
+
+هذه الخطة ما زالت **قيد التنفيذ**؛ الحالات التالية تصف العمل الموجود في الشجرة ولا تعني اجتياز التحقق أو اكتمال parity:
+
+- **CP-01 جزئي:** Runtime يعلن Control Plane command/query capabilities، وسجل media native مأخوذ من قدرات codecs المبنية. يوجد manifest وفاحص CI يمنعان إضافة command/query/event غير مسجل أو وسمه `complete` بلا تغطية العملاء وأدلة اختبارات العقود.
+- **CP-02 جزئي:** عقود v1 وCommand Bus وpermission scopes وidempotency داخل العملية وbest-effort batch موجودة. لا يزال RBAC/scoped-token store غير منفذ، وatomic batch غير متاح.
+- أوامر Profiles وRules وScheduler عبر Command Bus تعيد الآن أخطاء منظّمة عند الرفض/غياب العنصر، وتتحقق من تعارض معرفات الجدولة ونطاق TimeWindow؛ الأخطاء المؤقتة القابلة لإعادة المحاولة لا تُحجز تحت idempotency key.
+- يعيد تعديل Profile النشط تطبيق retry/bandwidth، وحذفه يبدل ذريًا إلى `balanced` ويعيد تطبيق السياسة وينشر الحدث. يفرض المحرك سقف 512 اتصالًا للمهمة حتى مع إعداد Profile غير موثوق.
+- يتحقق Profile Manager من connection/retry/threshold/segment bounds قبل قبول التعديلات؛ القيم القديمة المستعادة تطبّع إلى حدود runtime الحالية بدل إسقاط Profile كاملًا.
+- **CP-03 جزئي:** envelopes للأحداث وتنقيحها وsnapshot بحد أقصى 10,000 حدث وIDs مستمرة، مع حفظ Profiles المخصصة والـprofile النشط. مفاتيح idempotency ما زالت مؤقتة؛ Rules وcredential state لا تحفظ قبل Credential Manager آمن.
+- **CP-04 جزئي:** Desktop يستخدم v1 لأوامر وQueries مختارة، وCLI وTelegram يمرران العمليات المشتركة عبر bus؛ Telegram يتلقى حاليًا إشعارات الإكمال والفشل من Event Bus. فاحص parity يسجل Android gaps لأن تطبيقه ما زال يستخدم runtime JNI محليًا منفصلًا؛ لا تعتبر القائمة إثباتًا لتكافؤ العملاء.
+- **CP-08 جزئي:** design tokens موحدة تولد موارد QML وCompose ويكشف CI المخرجات القديمة.
+- أضيفت Queries مشتركة للتشخيصات والسجلات المنقحة، وأوامر CLI مباشرة للتحكم بالمهام. Network Profiles والإعدادات الموحدة غير متاحة بعد.
+- حسب توجيه المستخدم الحالي، **لم تُشغّل اختبارات أو أوامر بناء**. الفحص المنفذ محصور في parsing/التنسيق الساكن، JSON وmanifest consistency و`git diff --check`.
+
+تظل CP-05 إلى CP-10 وبقية متطلبات parity والـmedia/torrent/network/security/headless/remote/Android غير مكتملة حتى تنفيذها والتحقق منها على منصاتها. لا تستخدم هذه الملاحظات لاعتبار أي capability جاهزة للإصدار.
+
 ## Global Constraints
 
 - Rust هو المصدر الوحيد للحقيقة عن capability المتاحة؛ لا تعلن الواجهة قدرة غير موجودة في registry.

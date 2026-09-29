@@ -891,9 +891,9 @@ pub async fn run_dht_announce_lifecycle(
 
         let mut announces = JoinSet::new();
         for target in discovery.announce_targets.into_iter().take(16) {
-            let Some(peer_port) = crate::daemon::torrent_seed::active_seed_port_for(
-                target.address.ip(),
-            ) else {
+            let Some(peer_port) =
+                crate::daemon::torrent_seed::active_seed_port_for(target.address.ip())
+            else {
                 continue;
             };
             let engine = engine.clone();

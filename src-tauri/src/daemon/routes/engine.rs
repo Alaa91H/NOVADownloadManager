@@ -1,4 +1,5 @@
 use axum::extract::{Path, Query, State};
+use axum::http::HeaderMap;
 use axum::response::Json;
 use axum::routing::{delete, get, post};
 use axum::Router;
@@ -60,10 +61,19 @@ pub(super) fn extension_capabilities_from_status(status: &serde_json::Value) -> 
     let post_ready = bool_from_status(status, "/postProcessingReady");
     let torrent_magnet_ready = bool_from_status(status, "/engines/torrent/available")
         && bool_from_status(status, "/engines/torrent/capabilities/magnetResolver")
-        && bool_from_status(status, "/engines/torrent/capabilities/torrentTaskLifecycleApi");
+        && bool_from_status(
+            status,
+            "/engines/torrent/capabilities/torrentTaskLifecycleApi",
+        );
     let torrent_file_ready = bool_from_status(status, "/engines/torrent/available")
-        && bool_from_status(status, "/engines/torrent/capabilities/torrentMetainfoUrlFetch")
-        && bool_from_status(status, "/engines/torrent/capabilities/torrentTaskLifecycleApi");
+        && bool_from_status(
+            status,
+            "/engines/torrent/capabilities/torrentMetainfoUrlFetch",
+        )
+        && bool_from_status(
+            status,
+            "/engines/torrent/capabilities/torrentTaskLifecycleApi",
+        );
     let hls_ready =
         streaming_ready && bool_from_status(status, "/engines/media/capabilities/hlsTaskExecution");
     let dash_ready = streaming_ready
@@ -163,14 +173,19 @@ pub async fn handle_engine_events(
         .unwrap_or(100)
         .min(1000);
     let events = state.event_bus.recent_events(count);
+    let api_token = state.api_token.clone();
     let serialized: Vec<serde_json::Value> = events
         .into_iter()
-        .map(|e| {
+        .map(|event| {
+            let mut payload = serde_json::to_value(&event.event).unwrap_or_default();
+            if let Some(data) = payload.get_mut("data") {
+                crate::daemon::routes::commands::redact_event_data(data, None, &api_token);
+            }
             serde_json::json!({
-                "id": e.id,
-                "event": e.event,
-                "timestamp_millis": e.timestamp_millis,
-                "age_secs": e.timestamp.elapsed().as_secs(),
+                "id": event.id,
+                "event": payload,
+                "timestamp_millis": event.timestamp_millis,
+                "age_secs": event.timestamp.elapsed().as_secs(),
             })
         })
         .collect();
@@ -185,6 +200,7 @@ pub async fn handle_engine_events_clear(
     State(state): State<SharedState>,
 ) -> Json<serde_json::Value> {
     state.event_bus.clear_log();
+    state.mark_dirty();
     Json(serde_json::json!({"ok": true}))
 }
 
@@ -199,9 +215,20 @@ pub async fn handle_engine_events_for_task(
         .unwrap_or(50)
         .min(1000);
     let events = state.event_bus.events_for_task(&task_id, count);
+    let api_token = state.api_token.clone();
     let serialized: Vec<serde_json::Value> = events
         .into_iter()
-        .map(|e| serde_json::json!({"id": e.id, "event": e.event, "timestamp_millis": e.timestamp_millis}))
+        .map(|event| {
+            let mut payload = serde_json::to_value(&event.event).unwrap_or_default();
+            if let Some(data) = payload.get_mut("data") {
+                crate::daemon::routes::commands::redact_event_data(data, None, &api_token);
+            }
+            serde_json::json!({
+                "id": event.id,
+                "event": payload,
+                "timestamp_millis": event.timestamp_millis,
+            })
+        })
         .collect();
     Json(serde_json::json!({"ok": true, "task_id": task_id, "events": serialized}))
 }
@@ -221,26 +248,54 @@ pub async fn handle_queue_list(State(state): State<SharedState>) -> Json<serde_j
 
 #[derive(Deserialize)]
 pub struct QueueSetPriorityBody {
-    task_id: String,
-    priority: u32,
+    pub(crate) task_id: String,
+    pub(crate) priority: u32,
 }
 
 pub async fn handle_queue_set_priority(
     State(state): State<SharedState>,
+    headers: HeaderMap,
     Json(body): Json<QueueSetPriorityBody>,
-) -> Json<serde_json::Value> {
-    let priority = DownloadPriority::from_u32(body.priority);
-    state.priority_queue.set_priority(&body.task_id, priority);
-    state.event_bus.publish(
-        crate::daemon::engine::event_bus::EngineEvent::QueueChanged {
-            task_id: body.task_id.clone(),
-            position: 0,
+) -> Result<Json<serde_json::Value>, (axum::http::StatusCode, Json<serde_json::Value>)> {
+    let idempotency_key = headers
+        .get("idempotency-key")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let result = crate::daemon::routes::commands::execute_legacy(
+        &state,
+        nova_core_model::ControlCommand::SetTaskPriority {
+            task_id: body.task_id,
             priority: body.priority,
         },
-    );
-    Json(
-        serde_json::json!({"ok": true, "task_id": body.task_id, "priority": format!("{:?}", priority)}),
+        idempotency_key,
     )
+    .await
+    .map_err(crate::daemon::routes::commands::structured_error_to_http)?;
+    Ok(Json(result))
+}
+
+/// Shared priority operation used by legacy routes and the versioned command bus.
+pub(crate) fn set_task_priority(
+    state: &SharedState,
+    task_id: &str,
+    raw_priority: u32,
+) -> serde_json::Value {
+    let priority = DownloadPriority::from_u32(raw_priority);
+    state.priority_queue.set_priority(task_id, priority);
+    state.event_bus.publish(
+        crate::daemon::engine::event_bus::EngineEvent::QueueChanged {
+            task_id: task_id.to_owned(),
+            position: 0,
+            priority: raw_priority,
+        },
+    );
+    serde_json::json!({
+        "ok": true,
+        "task_id": task_id,
+        "taskId": task_id,
+        "priority": format!("{:?}", priority),
+        "priorityValue": raw_priority,
+    })
 }
 
 // â”€â”€â”€ Engine: Bandwidth Manager â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -354,13 +409,13 @@ pub async fn handle_rate_limit_set(
 // â”€â”€â”€ Engine: Download Profiles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 pub async fn handle_profiles_list(State(state): State<SharedState>) -> Json<serde_json::Value> {
-    let profiles = state.profile_manager.list_profiles();
-    let active = state.profile_manager.active_profile();
-    Json(serde_json::json!({
-        "ok": true,
-        "profiles": profiles,
-        "active_profile": active.id,
-    }))
+    let result = crate::daemon::routes::commands::query_legacy(
+        &state,
+        nova_core_model::ControlQuery::ListProfiles,
+    )
+    .await
+    .unwrap_or_else(|error| serde_json::json!({"ok": false, "error": error.message}));
+    Json(result)
 }
 
 #[derive(Deserialize)]
@@ -372,27 +427,16 @@ pub async fn handle_profiles_set_active(
     State(state): State<SharedState>,
     Json(body): Json<ProfileSetActiveBody>,
 ) -> Json<serde_json::Value> {
-    let success = state.profile_manager.set_active(&body.profile_id);
-    if success {
-        let profile = state.profile_manager.active_profile();
-        // Applying a profile replaces the engine-wide retry policy and rate
-        // limit as one coherent setting. A profile without a limit explicitly
-        // restores unlimited bandwidth (0); otherwise switching from
-        // economical/background to balanced would leave the old cap active.
-        if let Ok(mut policy) = state.default_retry_policy.write() {
-            *policy = profile.to_retry_policy();
-        }
-        let kbps = profile.rate_limit_kbps.unwrap_or(0);
-        state.bandwidth_manager.set_global_limit(kbps);
-        state.priority_queue.set_total_bandwidth(kbps);
-        state.event_bus.publish(
-            crate::daemon::engine::event_bus::EngineEvent::ProfileSwitched {
-                task_id: "global".to_owned(),
-                profile: profile.name,
-            },
-        );
-    }
-    Json(serde_json::json!({"ok": success, "profile_id": body.profile_id}))
+    let result = crate::daemon::routes::commands::execute_legacy(
+        &state,
+        nova_core_model::ControlCommand::SetActiveProfile {
+            profile_id: body.profile_id,
+        },
+        None,
+    )
+    .await
+    .unwrap_or_else(|error| serde_json::json!({"ok": false, "error": error.message}));
+    Json(result)
 }
 
 pub(super) fn retry_policy_json(policy: &RetryPolicy) -> serde_json::Value {
@@ -409,58 +453,50 @@ pub async fn handle_profiles_get(
     State(state): State<SharedState>,
     Path(profile_id): Path<String>,
 ) -> Json<serde_json::Value> {
-    match state.profile_manager.get_profile(&profile_id) {
-        Some(profile) => {
-            let adaptive = profile.to_adaptive_config();
-            let retry = profile.to_retry_policy();
-            Json(serde_json::json!({
-                "ok": true,
-                "profile": profile,
-                "resolved": {
-                    "adaptive": {
-                        "min_connections": adaptive.min_connections,
-                        "max_connections": adaptive.max_connections,
-                        "speed_high_threshold_bps": adaptive.speed_high_threshold,
-                        "speed_low_threshold_bps": adaptive.speed_low_threshold,
-                        "stall_threshold_ms": adaptive.stall_threshold.as_millis(),
-                        "eval_interval_ms": adaptive.eval_interval.as_millis(),
-                    },
-                    "retry": retry_policy_json(&retry),
-                },
-            }))
-        }
-        None => Json(serde_json::json!({"ok": false, "error": "Profile not found"})),
-    }
+    let result = crate::daemon::routes::commands::query_legacy(
+        &state,
+        nova_core_model::ControlQuery::GetProfile { profile_id },
+    )
+    .await
+    .unwrap_or_else(|error| serde_json::json!({"ok": false, "error": error.message}));
+    Json(result)
 }
 
 pub async fn handle_profiles_add_custom(
     State(state): State<SharedState>,
     Json(profile): Json<crate::daemon::engine::profiles::DownloadProfile>,
 ) -> Json<serde_json::Value> {
-    if profile.id.trim().is_empty() {
-        return Json(serde_json::json!({"ok": false, "error": "Profile id is required"}));
-    }
-    let profile_id = profile.id.clone();
-    if !state.profile_manager.add_profile(profile) {
-        return Json(serde_json::json!({
-            "ok": false,
-            "error": "Built-in profile ids are reserved or the profile store is unavailable"
-        }));
-    }
-    Json(serde_json::json!({"ok": true, "profile_id": profile_id}))
+    let request = match serde_json::to_value(profile) {
+        Ok(request) => request,
+        Err(error) => {
+            return Json(serde_json::json!({
+                "ok": false,
+                "error": format!("Profile could not be encoded: {error}"),
+            }));
+        }
+    };
+    let result = crate::daemon::routes::commands::execute_legacy(
+        &state,
+        nova_core_model::ControlCommand::UpsertProfile { request },
+        None,
+    )
+    .await
+    .unwrap_or_else(|error| serde_json::json!({"ok": false, "error": error.message}));
+    Json(result)
 }
 
 pub async fn handle_profiles_delete(
     State(state): State<SharedState>,
     Path(profile_id): Path<String>,
 ) -> Json<serde_json::Value> {
-    if crate::daemon::engine::profiles::DownloadProfile::is_builtin_id(&profile_id) {
-        return Json(
-            serde_json::json!({"ok": false, "error": "Built-in profiles cannot be removed"}),
-        );
-    }
-    let removed = state.profile_manager.remove_profile(&profile_id);
-    Json(serde_json::json!({"ok": removed, "profile_id": profile_id}))
+    let result = crate::daemon::routes::commands::execute_legacy(
+        &state,
+        nova_core_model::ControlCommand::DeleteProfile { profile_id },
+        None,
+    )
+    .await
+    .unwrap_or_else(|error| serde_json::json!({"ok": false, "error": error.message}));
+    Json(result)
 }
 
 // â”€â”€â”€ Engine: Retry Policy â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -532,8 +568,13 @@ pub async fn handle_retry_policy_set(
 // â”€â”€â”€ Engine: Download Rules â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 pub async fn handle_rules_list(State(state): State<SharedState>) -> Json<serde_json::Value> {
-    let rules = state.rule_engine.rules();
-    Json(serde_json::json!({"ok": true, "rules": rules}))
+    let result = crate::daemon::routes::commands::query_legacy(
+        &state,
+        nova_core_model::ControlQuery::ListRules,
+    )
+    .await
+    .unwrap_or_else(|error| serde_json::json!({"ok": false, "error": error.message}));
+    Json(result)
 }
 
 #[derive(Deserialize)]
@@ -545,27 +586,49 @@ pub async fn handle_rules_add(
     State(state): State<SharedState>,
     Json(body): Json<RuleAddBody>,
 ) -> Json<serde_json::Value> {
-    let rule_id = body.rule.id.clone();
-    match state.rule_engine.try_add_rule(body.rule) {
-        Ok(()) => Json(serde_json::json!({"ok": true, "rule_id": rule_id})),
-        Err(error) => Json(serde_json::json!({"ok": false, "error": error})),
-    }
+    let request = match serde_json::to_value(body.rule) {
+        Ok(request) => request,
+        Err(error) => {
+            return Json(serde_json::json!({
+                "ok": false,
+                "error": format!("Rule could not be encoded: {error}"),
+            }));
+        }
+    };
+    let result = crate::daemon::routes::commands::execute_legacy(
+        &state,
+        nova_core_model::ControlCommand::AddRule { request },
+        None,
+    )
+    .await
+    .unwrap_or_else(|error| serde_json::json!({"ok": false, "error": error.message}));
+    Json(result)
 }
 
 pub async fn handle_rules_delete(
     State(state): State<SharedState>,
     Path(rule_id): Path<String>,
 ) -> Json<serde_json::Value> {
-    state.rule_engine.remove_rule(&rule_id);
-    Json(serde_json::json!({"ok": true, "rule_id": rule_id}))
+    let result = crate::daemon::routes::commands::execute_legacy(
+        &state,
+        nova_core_model::ControlCommand::DeleteRule { rule_id },
+        None,
+    )
+    .await
+    .unwrap_or_else(|error| serde_json::json!({"ok": false, "error": error.message}));
+    Json(result)
 }
 
 // â”€â”€â”€ Engine: Smart Scheduler â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 pub async fn handle_scheduler_list(State(state): State<SharedState>) -> Json<serde_json::Value> {
-    let rules = state.scheduler.rules();
-    let active_ids = state.scheduler.active_rule_ids();
-    Json(serde_json::json!({"ok": true, "rules": rules, "active_rule_ids": active_ids}))
+    let result = crate::daemon::routes::commands::query_legacy(
+        &state,
+        nova_core_model::ControlQuery::ListSchedules,
+    )
+    .await
+    .unwrap_or_else(|error| serde_json::json!({"ok": false, "error": error.message}));
+    Json(result)
 }
 
 #[derive(Deserialize)]
@@ -577,26 +640,62 @@ pub async fn handle_scheduler_add(
     State(state): State<SharedState>,
     Json(body): Json<SchedulerAddBody>,
 ) -> Json<serde_json::Value> {
-    let rule_id = body.rule.id.clone();
-    state.scheduler.add_rule(body.rule);
-    Json(serde_json::json!({"ok": true, "rule_id": rule_id}))
+    let request = match serde_json::to_value(body.rule) {
+        Ok(request) => request,
+        Err(error) => {
+            return Json(serde_json::json!({
+                "ok": false,
+                "error": format!("Schedule could not be encoded: {error}"),
+            }));
+        }
+    };
+    let result = crate::daemon::routes::commands::execute_legacy(
+        &state,
+        nova_core_model::ControlCommand::AddSchedule { request },
+        None,
+    )
+    .await
+    .unwrap_or_else(|error| serde_json::json!({"ok": false, "error": error.message}));
+    Json(result)
 }
 
 pub async fn handle_scheduler_delete(
     State(state): State<SharedState>,
     Path(rule_id): Path<String>,
 ) -> Json<serde_json::Value> {
-    state.scheduler.remove_rule(&rule_id);
-    Json(serde_json::json!({"ok": true, "rule_id": rule_id}))
+    let result = crate::daemon::routes::commands::execute_legacy(
+        &state,
+        nova_core_model::ControlCommand::DeleteSchedule {
+            schedule_id: rule_id,
+        },
+        None,
+    )
+    .await
+    .unwrap_or_else(|error| serde_json::json!({"ok": false, "error": error.message}));
+    Json(result)
 }
 
 pub async fn handle_scheduler_update(
     State(state): State<SharedState>,
     Json(body): Json<SchedulerAddBody>,
 ) -> Json<serde_json::Value> {
-    let rule_id = body.rule.id.clone();
-    state.scheduler.update_rule(body.rule);
-    Json(serde_json::json!({"ok": true, "rule_id": rule_id}))
+    let request = match serde_json::to_value(body.rule) {
+        Ok(request) => request,
+        Err(error) => {
+            return Json(serde_json::json!({
+                "ok": false,
+                "error": format!("Schedule could not be encoded: {error}"),
+            }));
+        }
+    };
+    let result = crate::daemon::routes::commands::execute_legacy(
+        &state,
+        nova_core_model::ControlCommand::UpdateSchedule { request },
+        None,
+    )
+    .await
+    .unwrap_or_else(|error| serde_json::json!({"ok": false, "error": error.message}));
+    Json(result)
 }
 
 #[derive(Deserialize)]
@@ -608,11 +707,16 @@ pub async fn handle_scheduler_power_commands(
     State(state): State<SharedState>,
     Json(body): Json<PowerCommandsBody>,
 ) -> Json<serde_json::Value> {
-    state.scheduler.set_power_commands_enabled(body.enabled);
-    Json(serde_json::json!({
-        "ok": true,
-        "powerCommandsEnabled": state.scheduler.power_commands_enabled(),
-    }))
+    let result = crate::daemon::routes::commands::execute_legacy(
+        &state,
+        nova_core_model::ControlCommand::SetSchedulerPowerCommands {
+            enabled: body.enabled,
+        },
+        None,
+    )
+    .await
+    .unwrap_or_else(|error| serde_json::json!({"ok": false, "error": error.message}));
+    Json(result)
 }
 
 /// Periodic scheduler tick: evaluate all rules and apply triggered actions.
@@ -631,12 +735,10 @@ pub async fn run_scheduler_tick(state: &SharedState) {
         let snapshot = lock_or_err!(state.task_snapshot);
         let mut active = 0u32;
         let mut queued = 0u32;
-        let mut count_task = |status: &str| {
-            match nova_core_model::TaskState::from_status(status) {
-                Some(state) if state.is_active() => active = active.saturating_add(1),
-                Some(nova_core_model::TaskState::Queued) => queued = queued.saturating_add(1),
-                _ => {}
-            }
+        let mut count_task = |status: &str| match nova_core_model::TaskState::from_status(status) {
+            Some(state) if state.is_active() => active = active.saturating_add(1),
+            Some(nova_core_model::TaskState::Queued) => queued = queued.saturating_add(1),
+            _ => {}
         };
         for job in media.values() {
             count_task(&job.task.status);
@@ -1595,7 +1697,10 @@ mod tests {
         assert!(items.iter().any(|item| item == "candidate.magnet"));
         assert!(items.iter().any(|item| item == "candidate.torrent"));
         assert!(items.iter().any(|item| item == "task.add"));
-        assert_eq!(ready["unsupportedCandidateMediaTypes"], serde_json::json!([]));
+        assert_eq!(
+            ready["unsupportedCandidateMediaTypes"],
+            serde_json::json!([])
+        );
         assert_eq!(ready["torrentMetainfoUrlReady"], true);
 
         let unavailable_status = serde_json::json!({

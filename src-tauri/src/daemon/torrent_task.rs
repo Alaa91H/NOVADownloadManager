@@ -77,7 +77,7 @@ pub struct AnalyzeTorrentBody {
     pub magnet_uri: String,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateTorrentBody {
     pub analysis_id: String,

@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use super::config::global_config;
+use super::config::{global_config, MAX_CONNECTIONS_PER_DOWNLOAD};
 
 const MIN_CONNECTIONS: u32 = 1;
 
@@ -46,9 +46,11 @@ impl AdaptiveConnectionManager {
     pub fn new(initial_connections: u32, config: AdaptiveConfig) -> Self {
         // `AdaptiveConfig` is public and can be supplied by callers other than
         // the validated global configuration. Normalize its bounds before
-        // calling `clamp`, which panics when min > max, and preserve the
-        // invariant that a live manager always represents at least one slot.
-        let max_connections = config.max_connections.max(MIN_CONNECTIONS);
+        // calling `clamp`, which panics when min > max, and preserve both the
+        // minimum live slot and the engine-wide hard per-task ceiling.
+        let max_connections = config
+            .max_connections
+            .clamp(MIN_CONNECTIONS, MAX_CONNECTIONS_PER_DOWNLOAD);
         let min_connections = config
             .min_connections
             .clamp(MIN_CONNECTIONS, max_connections);
@@ -69,7 +71,7 @@ impl AdaptiveConnectionManager {
         let max_connections = self
             .max_connections
             .load(Ordering::Relaxed)
-            .max(MIN_CONNECTIONS);
+            .clamp(MIN_CONNECTIONS, MAX_CONNECTIONS_PER_DOWNLOAD);
         self.current_connections.store(
             connections.clamp(MIN_CONNECTIONS, max_connections),
             Ordering::Relaxed,

@@ -1,0 +1,17 @@
+[package]
+name = "nova-cli"
+version = "0.1.0"
+description = "Command-line client for the NOVA Control Plane API"
+authors = ["NOVA"]
+license = "MIT"
+edition = "2021"
+rust-version = "1.85"
+
+[[bin]]
+name = "nova"
+path = "src/main.rs"
+
+[dependencies]
+nova-core-model = { path = "../nova-core-model" }
+reqwest = { version = ">=0.12.0, <0.14", features = ["blocking", "json"] }
+serde_json = "1"

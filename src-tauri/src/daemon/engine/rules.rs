@@ -123,10 +123,22 @@ impl DownloadRuleEngine {
     }
 
     pub fn remove_rule(&self, rule_id: &str) {
-        if let Ok(mut inner) = self.inner.lock() {
-            inner.rules.retain(|r| r.id != rule_id);
-            inner.compiled.retain(|(id, _)| id != rule_id);
+        if let Err(error) = self.try_remove_rule(rule_id) {
+            log::warn!("Rules: could not remove rule: {error}");
         }
+    }
+
+    /// Remove a rule while preserving lock failures for the command boundary.
+    /// A missing identifier is an idempotent no-op and returns `false`.
+    pub fn try_remove_rule(&self, rule_id: &str) -> Result<bool, String> {
+        let mut inner = self
+            .inner
+            .lock()
+            .map_err(|error| format!("Rules lock poisoned: {error}"))?;
+        let before = inner.rules.len();
+        inner.rules.retain(|rule| rule.id != rule_id);
+        inner.compiled.retain(|(id, _)| id != rule_id);
+        Ok(inner.rules.len() != before)
     }
 
     /// Returns `(rule_id, action)` for every enabled rule whose conditions all match.

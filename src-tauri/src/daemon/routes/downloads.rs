@@ -1,19 +1,18 @@
 use axum::extract::{Path, Query, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{
     sse::{Event, KeepAlive, Sse},
     Json,
 };
 use axum::routing::{delete, get, post};
 use axum::Router;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
 use std::time::Duration;
-use serde::Deserialize;
 
 use crate::daemon::curl::{
-    create_curl_task as direct_create, delete_task, finish_live_media_task, list_all_tasks, pause_task, redownload_task,
-    resume_task, update_task_metadata,
+    create_curl_task as direct_create, finish_live_media_task, list_all_tasks, update_task_metadata,
 };
 use crate::daemon::direct::DirectUrl;
 use crate::daemon::engine::mirror::{MirrorManager, MirrorSource};
@@ -38,9 +37,9 @@ use super::probes::probe_url_with_options;
 
 const NATIVE_MEDIA_PLAYLIST_RESOLUTION_CONCURRENCY: usize = 4;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct CreateNativeMediaPlaylistBody {
+pub(crate) struct CreateNativeMediaPlaylistBody {
     url: String,
     #[serde(rename = "savePath")]
     save_path: Option<String>,
@@ -91,8 +90,13 @@ pub async fn handle_health(State(state): State<SharedState>) -> Json<serde_json:
     }))
 }
 
-pub async fn handle_list_downloads(State(state): State<SharedState>) -> Json<Vec<Task>> {
-    Json(list_all_tasks(&state).await)
+pub async fn handle_list_downloads(
+    State(state): State<SharedState>,
+) -> Result<Json<Vec<Task>>, (StatusCode, Json<serde_json::Value>)> {
+    crate::daemon::routes::commands::list_all_tasks_query(&state)
+        .await
+        .map(Json)
+        .map_err(crate::daemon::routes::commands::structured_error_to_http)
 }
 
 /// Produce a stable in-memory fingerprint for every task field that clients
@@ -364,10 +368,10 @@ fn register_task_with_engine(
     }
 }
 
-pub async fn handle_create_download(
-    State(state): State<SharedState>,
-    Json(mut body): Json<CreateDownloadBody>,
-) -> Result<Json<Task>, (StatusCode, Json<serde_json::Value>)> {
+pub(crate) async fn create_download_service(
+    state: SharedState,
+    mut body: CreateDownloadBody,
+) -> Result<Task, (StatusCode, Json<serde_json::Value>)> {
     let url = body.url.clone().unwrap_or_default();
     if url.is_empty() {
         return Err((
@@ -418,7 +422,7 @@ pub async fn handle_create_download(
             )
         })?;
         telegram_notify(&state, &format!("Torrent added: {}", task.name)).await;
-        return Ok(Json(task));
+        return Ok(task);
     }
 
     let (rule_priority, rule_mirrors, rule_rate_limit) =
@@ -533,7 +537,7 @@ pub async fn handle_create_download(
             }
 
             telegram_notify(&state, &format!("Download started: {}", task.name)).await;
-            Ok(Json(task))
+            Ok(task)
         }
         Err(e) => {
             log::error!("Create download failed: {e}");
@@ -542,9 +546,41 @@ pub async fn handle_create_download(
     }
 }
 
+pub async fn handle_create_download(
+    State(state): State<SharedState>,
+    headers: HeaderMap,
+    Json(body): Json<CreateDownloadBody>,
+) -> Result<Json<Task>, (StatusCode, Json<serde_json::Value>)> {
+    crate::daemon::routes::commands::add_download_from_body(&state, body, idempotency_key(&headers))
+        .await
+        .map(Json)
+        .map_err(crate::daemon::routes::commands::structured_error_to_http)
+}
+
 async fn handle_create_native_media_playlist(
     State(state): State<SharedState>,
+    headers: HeaderMap,
     Json(body): Json<CreateNativeMediaPlaylistBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let request = serde_json::to_value(body).map_err(|error| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": format!("Invalid playlist request: {error}")})),
+        )
+    })?;
+    let result = super::commands::execute_legacy(
+        &state,
+        nova_core_model::ControlCommand::AddMediaPlaylist { request },
+        idempotency_key(&headers),
+    )
+    .await
+    .map_err(super::commands::structured_error_to_http)?;
+    Ok(Json(result))
+}
+
+pub(crate) async fn create_native_media_playlist_service(
+    state: SharedState,
+    body: CreateNativeMediaPlaylistBody,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     let playlist_url = body.url.trim().to_owned();
     if playlist_url.is_empty() {
@@ -584,15 +620,14 @@ async fn handle_create_native_media_playlist(
         save_directory.push(std::path::MAIN_SEPARATOR);
     }
 
-    let selected_indices = parse_native_media_playlist_selection(
-        body.media_options.playlist_items.as_deref(),
-    )
-    .map_err(|error| {
-        (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": error})),
-        )
-    })?;
+    let selected_indices =
+        parse_native_media_playlist_selection(body.media_options.playlist_items.as_deref())
+            .map_err(|error| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({"error": error})),
+                )
+            })?;
 
     let playlist_request = CreateDownloadBody {
         url: Some(playlist_url.clone()),
@@ -648,7 +683,10 @@ async fn handle_create_native_media_playlist(
         }
     }
     if let Some(indices) = &selected_indices {
-        let missing = indices.difference(&found_indices).copied().collect::<Vec<_>>();
+        let missing = indices
+            .difference(&found_indices)
+            .copied()
+            .collect::<Vec<_>>();
         if !missing.is_empty() {
             return Err((
                 StatusCode::UNPROCESSABLE_ENTITY,
@@ -701,7 +739,11 @@ async fn handle_create_native_media_playlist(
         while pending.len() >= NATIVE_MEDIA_PLAYLIST_RESOLUTION_CONCURRENCY {
             if let Some(result) = pending.join_next().await {
                 results.push(result.unwrap_or_else(|error| {
-                    (0, String::new(), Err(format!("Playlist task worker failed: {error}")))
+                    (
+                        0,
+                        String::new(),
+                        Err(format!("Playlist task worker failed: {error}")),
+                    )
                 }));
             }
         }
@@ -739,19 +781,9 @@ async fn handle_create_native_media_playlist(
                     media_options: Some(media_options),
                 };
 
-                let (priority, mirrors, rate_limit) =
-                    apply_download_rules(&state, &mut item_body, &url)?;
-                let extractor = state
-                    .extractor_registry
-                    .validate(&item_body)
-                    .map_err(|error| error.to_string())?;
-                if extractor.id() != "nova-media-engine" {
-                    return Err("Playlist item did not resolve to the native media engine".to_owned());
-                }
-                let task = create_native_media_task(&state, &item_body)
+                let task = super::commands::add_download_from_body(&state, item_body, None)
                     .await
-                    .map_err(|error| error.to_string())?;
-                register_task_with_engine(&state, &task, priority, mirrors, rate_limit);
+                    .map_err(|error| error.message)?;
                 if start_immediately {
                     crate::daemon::native_media::start_native_media_process(&state, &task.id);
                 }
@@ -764,7 +796,11 @@ async fn handle_create_native_media_playlist(
 
     while let Some(result) = pending.join_next().await {
         results.push(result.unwrap_or_else(|error| {
-            (0, String::new(), Err(format!("Playlist task worker failed: {error}")))
+            (
+                0,
+                String::new(),
+                Err(format!("Playlist task worker failed: {error}")),
+            )
         }));
     }
     results.sort_by_key(|(index, _, _)| *index);
@@ -820,7 +856,9 @@ fn parse_native_media_playlist_selection(
             .filter(|index| *index > 0)
             .ok_or_else(|| "Playlist item indexes must be positive integers".to_owned())?;
         if !indices.insert(index) {
-            return Err(format!("Playlist item index {index} was selected more than once"));
+            return Err(format!(
+                "Playlist item index {index} was selected more than once"
+            ));
         }
         if indices.len() > MAX_NATIVE_MEDIA_PLAYLIST_ITEMS {
             return Err(format!(
@@ -834,53 +872,68 @@ fn parse_native_media_playlist_selection(
 pub async fn handle_pause_task(
     State(state): State<SharedState>,
     Path(id): Path<String>,
+    headers: HeaderMap,
 ) -> Result<Json<Task>, (StatusCode, Json<serde_json::Value>)> {
-    pause_task(&state, &id).await.map(Json).map_err(|e| {
-        log::error!("Pause task failed: {e}");
-        daemon_error(e)
-    })
+    execute_task_command(
+        &state,
+        nova_core_model::ControlCommand::PauseTask { task_id: id },
+        idempotency_key(&headers),
+    )
+    .await
+    .map(Json)
 }
 
 pub async fn handle_finish_live_media_task(
     State(state): State<SharedState>,
     Path(id): Path<String>,
 ) -> Result<Json<Task>, (StatusCode, Json<serde_json::Value>)> {
-    finish_live_media_task(&state, &id).map(Json).map_err(|error| {
-        log::error!("Finish live media recording failed: {error}");
-        daemon_error(error)
-    })
+    finish_live_media_task(&state, &id)
+        .map(Json)
+        .map_err(|error| {
+            log::error!("Finish live media recording failed: {error}");
+            daemon_error(error)
+        })
 }
 
 pub async fn handle_resume_task(
     State(state): State<SharedState>,
     Path(id): Path<String>,
+    headers: HeaderMap,
 ) -> Result<Json<Task>, (StatusCode, Json<serde_json::Value>)> {
-    resume_task(&state, &id).await.map(Json).map_err(|e| {
-        log::error!("Resume task failed: {e}");
-        daemon_error(e)
-    })
+    execute_task_command(
+        &state,
+        nova_core_model::ControlCommand::ResumeTask { task_id: id },
+        idempotency_key(&headers),
+    )
+    .await
+    .map(Json)
 }
 
 pub async fn handle_delete_task(
     State(state): State<SharedState>,
     Path(id): Path<String>,
     Query(params): Query<HashMap<String, String>>,
+    headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     let delete_files = params
         .get("deleteFiles")
         .or_else(|| params.get("deleteDisk"))
         .is_some_and(|v| matches!(v.as_str(), "1" | "true" | "yes" | "on"));
-    delete_task(&state, &id, delete_files)
-        .await
-        .map(|()| Json(serde_json::json!({"ok": true, "deleteFiles": delete_files})))
-        .map_err(|e| {
-            log::error!("Delete task failed: {e}");
-            daemon_error(e)
-        })
+    let result = crate::daemon::routes::commands::execute_legacy(
+        &state,
+        nova_core_model::ControlCommand::DeleteTask {
+            task_id: id,
+            delete_files,
+        },
+        idempotency_key(&headers),
+    )
+    .await
+    .map_err(crate::daemon::routes::commands::structured_error_to_http)?;
+    Ok(Json(result))
 }
 
-#[derive(serde::Deserialize, Default)]
-pub struct UpdateDownloadBody {
+#[derive(serde::Deserialize, serde::Serialize, Default)]
+pub(crate) struct UpdateDownloadBody {
     #[serde(default)]
     name: Option<String>,
     #[serde(default)]
@@ -890,34 +943,83 @@ pub struct UpdateDownloadBody {
 pub async fn handle_update_task(
     State(state): State<SharedState>,
     Path(id): Path<String>,
+    headers: HeaderMap,
     Json(body): Json<UpdateDownloadBody>,
 ) -> Result<Json<Task>, (StatusCode, Json<serde_json::Value>)> {
-    update_task_metadata(&state, &id, body.name, body.url)
-        .await
-        .map(Json)
-        .map_err(|e| {
-            log::error!("Update task failed: {e}");
-            daemon_error(e)
-        })
+    let request = serde_json::to_value(body).map_err(|error| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": format!("Invalid task update: {error}")})),
+        )
+    })?;
+    execute_task_command(
+        &state,
+        nova_core_model::ControlCommand::UpdateTask {
+            task_id: id,
+            request,
+        },
+        idempotency_key(&headers),
+    )
+    .await
+    .map(Json)
+}
+
+pub(crate) async fn update_task_service(
+    state: &SharedState,
+    task_id: &str,
+    body: UpdateDownloadBody,
+) -> Result<Task, String> {
+    update_task_metadata(state, task_id, body.name, body.url).await
 }
 
 pub async fn handle_create_media_download(
     State(state): State<SharedState>,
+    headers: HeaderMap,
     Json(mut body): Json<CreateDownloadBody>,
 ) -> Result<Json<Task>, (StatusCode, Json<serde_json::Value>)> {
     if body.media_options.is_none() {
         body.media_options = Some(MediaDownloadOptions::default());
     }
-    handle_create_download(State(state), Json(body)).await
+    crate::daemon::routes::commands::add_download_from_body(&state, body, idempotency_key(&headers))
+        .await
+        .map(Json)
+        .map_err(crate::daemon::routes::commands::structured_error_to_http)
 }
 
 pub async fn handle_redownload_task(
     State(state): State<SharedState>,
     Path(id): Path<String>,
+    headers: HeaderMap,
 ) -> Result<Json<Task>, (StatusCode, Json<serde_json::Value>)> {
-    redownload_task(&state, &id).await.map(Json).map_err(|e| {
-        log::error!("Redownload task failed: {e}");
-        daemon_error(e)
+    execute_task_command(
+        &state,
+        nova_core_model::ControlCommand::RedownloadTask { task_id: id },
+        idempotency_key(&headers),
+    )
+    .await
+    .map(Json)
+}
+
+fn idempotency_key(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get("idempotency-key")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned)
+}
+
+async fn execute_task_command(
+    state: &SharedState,
+    command: nova_core_model::ControlCommand,
+    idempotency_key: Option<String>,
+) -> Result<Task, (StatusCode, Json<serde_json::Value>)> {
+    let result = crate::daemon::routes::commands::execute_legacy(state, command, idempotency_key)
+        .await
+        .map_err(crate::daemon::routes::commands::structured_error_to_http)?;
+    serde_json::from_value(result).map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": error.to_string()})),
+        )
     })
 }
 
@@ -1465,7 +1567,10 @@ pub fn register_routes(router: Router<SharedState>) -> Router<SharedState> {
         .route("/api/downloads/events", get(handle_download_events))
         .route("/api/downloads/{id}/pause", post(handle_pause_task))
         .route("/api/downloads/{id}/resume", post(handle_resume_task))
-        .route("/api/downloads/{id}/finish", post(handle_finish_live_media_task))
+        .route(
+            "/api/downloads/{id}/finish",
+            post(handle_finish_live_media_task),
+        )
         .route(
             "/api/downloads/{id}/redownload",
             post(handle_redownload_task),

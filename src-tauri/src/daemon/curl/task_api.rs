@@ -179,7 +179,9 @@ pub async fn pause_task(state: &SharedState, id: &str) -> Result<Task, String> {
         let mut jobs = lock_or_err!(state.native_media_jobs);
         if let Some(job) = jobs.get_mut(id) {
             if job.finish_requested.load(Ordering::Acquire) {
-                return Err("A live media recording is already finalizing and cannot be paused.".to_owned());
+                return Err(
+                    "A live media recording is already finalizing and cannot be paused.".to_owned(),
+                );
             }
             let current = TaskState::from_status(&job.task.status)
                 .ok_or_else(|| format!("Task {id} has unknown state '{}'", job.task.status))?;

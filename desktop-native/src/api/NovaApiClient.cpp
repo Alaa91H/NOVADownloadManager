@@ -20,6 +20,7 @@
 #include <QTimer>
 #include <QUrl>
 #include <QUrlQuery>
+#include <QUuid>
 #include <QtGlobal>
 #include <algorithm>
 
@@ -33,12 +34,24 @@ QString responseErrorMessage(QNetworkReply *reply, const QByteArray &payload) {
         if (serverMessage.isEmpty()) {
             serverMessage = object.value(QStringLiteral("message")).toString();
         }
+        if (serverMessage.isEmpty() && object.value(QStringLiteral("error")).isObject()) {
+            const QJsonObject error = object.value(QStringLiteral("error")).toObject();
+            serverMessage = error.value(QStringLiteral("message")).toString();
+            if (serverMessage.isEmpty()) {
+                serverMessage = error.value(QStringLiteral("code")).toString();
+            }
+        }
         if (!serverMessage.isEmpty()) {
             return serverMessage;
         }
     }
 
     return reply->errorString();
+}
+
+QJsonObject controlResultObject(const QJsonObject &document) {
+    const QJsonValue result = document.value(QStringLiteral("result"));
+    return result.isObject() ? result.toObject() : QJsonObject{};
 }
 
 } // namespace
@@ -122,6 +135,45 @@ QNetworkRequest NovaApiClient::makeRequest(const QString &path, const QUrlQuery 
     return request;
 }
 
+QNetworkReply *NovaApiClient::postControlCommand(const QString &type, const QJsonObject &fields) {
+    const QString requestId = QStringLiteral("desktop-%1")
+        .arg(QUuid::createUuid().toString(QUuid::WithoutBraces));
+    QJsonObject command;
+    command.insert(QStringLiteral("type"), type);
+    for (auto iterator = fields.constBegin(); iterator != fields.constEnd(); ++iterator) {
+        command.insert(iterator.key(), iterator.value());
+    }
+    const QJsonObject envelope{
+        {QStringLiteral("contractVersion"), 1},
+        {QStringLiteral("requestId"), requestId},
+        {QStringLiteral("idempotencyKey"), requestId},
+        {QStringLiteral("command"), command},
+    };
+    return m_network.post(
+        makeRequest(QStringLiteral("/api/v1/commands")),
+        QJsonDocument(envelope).toJson(QJsonDocument::Compact)
+    );
+}
+
+QNetworkReply *NovaApiClient::postControlQuery(const QString &type, const QJsonObject &fields) {
+    const QString requestId = QStringLiteral("desktop-query-%1")
+        .arg(QUuid::createUuid().toString(QUuid::WithoutBraces));
+    QJsonObject query;
+    query.insert(QStringLiteral("type"), type);
+    for (auto iterator = fields.constBegin(); iterator != fields.constEnd(); ++iterator) {
+        query.insert(iterator.key(), iterator.value());
+    }
+    const QJsonObject envelope{
+        {QStringLiteral("contractVersion"), 1},
+        {QStringLiteral("requestId"), requestId},
+        {QStringLiteral("query"), query},
+    };
+    return m_network.post(
+        makeRequest(QStringLiteral("/api/v1/queries")),
+        QJsonDocument(envelope).toJson(QJsonDocument::Compact)
+    );
+}
+
 void NovaApiClient::setConnectionState(bool connected, const QString &text) {
     if (m_connected == connected && m_statusText == text) {
         return;
@@ -129,6 +181,23 @@ void NovaApiClient::setConnectionState(bool connected, const QString &text) {
     m_connected = connected;
     m_statusText = text;
     emit connectionChanged();
+}
+
+QString NovaApiClient::controlPlaneCapabilityStatus(const QString &capabilityId) const {
+    const QString requestedId = capabilityId.trimmed();
+    const QVariantMap controlPlane = m_engineCapabilities.value(QStringLiteral("controlPlane")).toMap();
+    const QVariantList capabilities = controlPlane.value(QStringLiteral("commandCapabilities")).toList();
+    for (const QVariant &entryValue : capabilities) {
+        const QVariantMap entry = entryValue.toMap();
+        if (entry.value(QStringLiteral("id")).toString() == requestedId) {
+            return entry.value(QStringLiteral("status")).toString(QStringLiteral("unavailable"));
+        }
+    }
+    return QStringLiteral("unavailable");
+}
+
+bool NovaApiClient::controlPlaneCommandSupported(const QString &capabilityId) const {
+    return controlPlaneCapabilityStatus(capabilityId) == QStringLiteral("supported");
 }
 
 void NovaApiClient::checkHealth() {
@@ -157,6 +226,7 @@ void NovaApiClient::checkHealth() {
 
         if (healthy && !wasConnected) {
             m_streamReconnectAttempt = 0;
+            refreshEngineCapabilities();
             refreshDownloads();
             startDownloadStream();
         }
@@ -209,6 +279,10 @@ void NovaApiClient::createDownloadAdvanced(
     int connections,
     const QVariantMap &directOptions
 ) {
+    if (!controlPlaneCommandSupported(QStringLiteral("addDownload"))) {
+        emit downloadCreationFailed(QStringLiteral("The Runtime does not report direct download as available."));
+        return;
+    }
     const QString trimmedUrl = url.trimmed();
     if (trimmedUrl.isEmpty()) {
         emit downloadCreationFailed(QStringLiteral("Enter a download URL."));
@@ -264,9 +338,9 @@ void NovaApiClient::createDownloadAdvanced(
         );
     }
 
-    auto *reply = m_network.post(
-        makeRequest(QStringLiteral("/api/downloads")),
-        QJsonDocument(body).toJson(QJsonDocument::Compact)
+    auto *reply = postControlCommand(
+        QStringLiteral("addDownload"),
+        QJsonObject{{QStringLiteral("request"), body}}
     );
 
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
@@ -284,7 +358,8 @@ void NovaApiClient::createDownloadAdvanced(
             return;
         }
 
-        const QString taskId = document.object().value(QStringLiteral("id")).toString();
+        const QJsonObject result = document.object().value(QStringLiteral("result")).toObject();
+        const QString taskId = result.value(QStringLiteral("id")).toString();
         emit downloadCreated(taskId);
         refreshDownloads();
     });
@@ -295,6 +370,10 @@ void NovaApiClient::updateDownloadMetadata(
     const QString &name,
     const QString &url
 ) {
+    if (!controlPlaneCommandSupported(QStringLiteral("updateTask"))) {
+        emit downloadUpdateFailed(QStringLiteral("Task metadata updates are unavailable in this Runtime."));
+        return;
+    }
     const QString trimmedId = id.trimmed();
     const QString trimmedName = name.trimmed();
     const QString trimmedUrl = url.trimmed();
@@ -312,15 +391,13 @@ void NovaApiClient::updateDownloadMetadata(
         return;
     }
 
-    const QString encodedId = QString::fromUtf8(QUrl::toPercentEncoding(trimmedId));
-    QJsonObject body;
-    body.insert(QStringLiteral("name"), trimmedName);
-    body.insert(QStringLiteral("url"), trimmedUrl);
-
-    auto *reply = m_network.sendCustomRequest(
-        makeRequest(QStringLiteral("/api/downloads/%1").arg(encodedId)),
-        QByteArrayLiteral("PATCH"),
-        QJsonDocument(body).toJson(QJsonDocument::Compact)
+    auto *reply = postControlCommand(
+        QStringLiteral("updateTask"),
+        QJsonObject{
+            {QStringLiteral("taskId"), trimmedId},
+            {QStringLiteral("name"), trimmedName},
+            {QStringLiteral("url"), trimmedUrl},
+        }
     );
 
     connect(reply, &QNetworkReply::finished, this, [this, reply, trimmedId]() {
@@ -508,9 +585,30 @@ void NovaApiClient::runTaskAction(const QString &id, const QString &action) {
         return;
     }
 
-    const QString encodedId = QString::fromUtf8(QUrl::toPercentEncoding(id));
-    const QString path = QStringLiteral("/api/downloads/%1/%2").arg(encodedId, action);
-    auto *reply = m_network.post(makeRequest(path), QByteArray());
+    QString commandType;
+    if (action == QStringLiteral("pause")) {
+        commandType = QStringLiteral("pauseTask");
+    } else if (action == QStringLiteral("resume")) {
+        commandType = QStringLiteral("resumeTask");
+    } else if (action == QStringLiteral("retry")) {
+        commandType = QStringLiteral("retryTask");
+    } else if (action == QStringLiteral("redownload")) {
+        commandType = QStringLiteral("redownloadTask");
+    }
+    if (!commandType.isEmpty() && !controlPlaneCommandSupported(commandType)) {
+        emit requestFailed(QStringLiteral("The requested task action is unavailable in this Runtime."));
+        return;
+    }
+    auto *reply = commandType.isEmpty()
+        ? m_network.post(
+              makeRequest(QStringLiteral("/api/downloads/%1/%2").arg(
+                  QString::fromUtf8(QUrl::toPercentEncoding(id)), action)),
+              QByteArray()
+          )
+        : postControlCommand(
+              commandType,
+              QJsonObject{{QStringLiteral("taskId"), id}}
+          );
 
     connect(reply, &QNetworkReply::finished, this, [this, reply, id, action]() {
         const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
@@ -590,12 +688,18 @@ void NovaApiClient::deleteCompletedDownloads() {
 }
 
 void NovaApiClient::deleteDownload(const QString &id) {
+    if (!controlPlaneCommandSupported(QStringLiteral("deleteTask"))) {
+        emit requestFailed(QStringLiteral("Task deletion is unavailable in this Runtime."));
+        return;
+    }
     if (id.isEmpty()) {
         return;
     }
 
-    const QString encodedId = QString::fromUtf8(QUrl::toPercentEncoding(id));
-    auto *reply = m_network.deleteResource(makeRequest(QStringLiteral("/api/downloads/%1").arg(encodedId)));
+    auto *reply = postControlCommand(
+        QStringLiteral("deleteTask"),
+        QJsonObject{{QStringLiteral("taskId"), id}, {QStringLiteral("deleteFiles"), false}}
+    );
 
     connect(reply, &QNetworkReply::finished, this, [this, reply, id]() {
         const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
@@ -812,7 +916,7 @@ QStringList NovaApiClient::orderedQueueTaskIds(const QString &queueId) const {
 }
 
 void NovaApiClient::refreshQueueCatalog() {
-    auto *reply = m_network.get(makeRequest(QStringLiteral("/api/queues")));
+    auto *reply = postControlQuery(QStringLiteral("listQueues"));
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
         const QByteArray payload = reply->readAll();
@@ -828,7 +932,8 @@ void NovaApiClient::refreshQueueCatalog() {
             return;
         }
 
-        applyQueueCatalog(document.object().value(QStringLiteral("queues")).toArray());
+        applyQueueCatalog(controlResultObject(document.object())
+            .value(QStringLiteral("queues")).toArray());
     });
 }
 
@@ -838,18 +943,18 @@ void NovaApiClient::createQueue(const QString &nameText, const QString &taskIdTe
         emit requestFailed(QStringLiteral("Queue name cannot be empty."));
         return;
     }
-
-    QJsonObject body;
-    body.insert(QStringLiteral("name"), name);
-    const QString taskId = taskIdText.trimmed();
-    if (!taskId.isEmpty()) {
-        body.insert(QStringLiteral("taskId"), taskId);
+    if (!controlPlaneCommandSupported(QStringLiteral("createQueue"))) {
+        emit requestFailed(QStringLiteral("Queue creation is unavailable in this Runtime."));
+        return;
     }
 
-    auto *reply = m_network.post(
-        makeRequest(QStringLiteral("/api/queues")),
-        QJsonDocument(body).toJson(QJsonDocument::Compact)
-    );
+    QJsonObject fields{{QStringLiteral("name"), name}};
+    const QString taskId = taskIdText.trimmed();
+    if (!taskId.isEmpty()) {
+        fields.insert(QStringLiteral("taskId"), taskId);
+    }
+
+    auto *reply = postControlCommand(QStringLiteral("createQueue"), fields);
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
         const QByteArray payload = reply->readAll();
@@ -863,7 +968,7 @@ void NovaApiClient::createQueue(const QString &nameText, const QString &taskIdTe
             emit requestFailed(QStringLiteral("Unexpected queue-create response."));
             return;
         }
-        const QJsonObject root = document.object();
+        const QJsonObject root = controlResultObject(document.object());
         applyQueueCatalog(root.value(QStringLiteral("queues")).toArray());
         emit queueCatalogActionCompleted(
             QStringLiteral("create"),
@@ -879,13 +984,17 @@ void NovaApiClient::updateQueue(const QVariantMap &queue) {
         emit requestFailed(QStringLiteral("Queue id is required."));
         return;
     }
+    if (!controlPlaneCommandSupported(QStringLiteral("updateQueue"))) {
+        emit requestFailed(QStringLiteral("Queue updates are unavailable in this Runtime."));
+        return;
+    }
 
-    QJsonObject body;
-    body.insert(QStringLiteral("queue"), QJsonObject::fromVariantMap(queue));
-    const QString encodedId = QString::fromUtf8(QUrl::toPercentEncoding(queueId));
-    auto *reply = m_network.post(
-        makeRequest(QStringLiteral("/api/queues/%1").arg(encodedId)),
-        QJsonDocument(body).toJson(QJsonDocument::Compact)
+    auto *reply = postControlCommand(
+        QStringLiteral("updateQueue"),
+        QJsonObject{
+            {QStringLiteral("queueId"), queueId},
+            {QStringLiteral("queue"), QJsonObject::fromVariantMap(queue)},
+        }
     );
 
     connect(reply, &QNetworkReply::finished, this, [this, reply, queueId]() {
@@ -902,7 +1011,8 @@ void NovaApiClient::updateQueue(const QVariantMap &queue) {
             return;
         }
 
-        applyQueueCatalog(document.object().value(QStringLiteral("queues")).toArray());
+        applyQueueCatalog(controlResultObject(document.object())
+            .value(QStringLiteral("queues")).toArray());
         emit queueCatalogActionCompleted(QStringLiteral("update"), queueId);
         refreshQueue();
     });
@@ -914,10 +1024,14 @@ void NovaApiClient::deleteQueue(const QString &queueIdText) {
         emit requestFailed(QStringLiteral("The main queue cannot be deleted."));
         return;
     }
+    if (!controlPlaneCommandSupported(QStringLiteral("deleteQueue"))) {
+        emit requestFailed(QStringLiteral("Queue deletion is unavailable in this Runtime."));
+        return;
+    }
 
-    const QString encodedId = QString::fromUtf8(QUrl::toPercentEncoding(queueId));
-    auto *reply = m_network.deleteResource(
-        makeRequest(QStringLiteral("/api/queues/%1").arg(encodedId))
+    auto *reply = postControlCommand(
+        QStringLiteral("deleteQueue"),
+        QJsonObject{{QStringLiteral("queueId"), queueId}}
     );
     connect(reply, &QNetworkReply::finished, this, [this, reply, queueId]() {
         const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
@@ -932,7 +1046,8 @@ void NovaApiClient::deleteQueue(const QString &queueIdText) {
             emit requestFailed(QStringLiteral("Unexpected queue-delete response."));
             return;
         }
-        applyQueueCatalog(document.object().value(QStringLiteral("queues")).toArray());
+        applyQueueCatalog(controlResultObject(document.object())
+            .value(QStringLiteral("queues")).toArray());
         emit queueCatalogActionCompleted(QStringLiteral("delete"), queueId);
         refreshDownloads();
         refreshQueue();
@@ -942,6 +1057,10 @@ void NovaApiClient::deleteQueue(const QString &queueIdText) {
 void NovaApiClient::moveQueue(const QString &queueIdText, int offset) {
     const QString queueId = queueIdText.trimmed();
     if (queueId.isEmpty() || offset == 0) {
+        return;
+    }
+    if (!controlPlaneCommandSupported(QStringLiteral("reorderQueues"))) {
+        emit requestFailed(QStringLiteral("Queue reordering is unavailable in this Runtime."));
         return;
     }
 
@@ -964,10 +1083,9 @@ void NovaApiClient::moveQueue(const QString &queueIdText, int offset) {
     for (const QString &id : ids) {
         queueIds.append(id);
     }
-    QJsonObject body{{QStringLiteral("queueIds"), queueIds}};
-    auto *reply = m_network.post(
-        makeRequest(QStringLiteral("/api/queues/reorder")),
-        QJsonDocument(body).toJson(QJsonDocument::Compact)
+    auto *reply = postControlCommand(
+        QStringLiteral("reorderQueues"),
+        QJsonObject{{QStringLiteral("queueIds"), queueIds}}
     );
     connect(reply, &QNetworkReply::finished, this, [this, reply, queueId]() {
         const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
@@ -981,7 +1099,8 @@ void NovaApiClient::moveQueue(const QString &queueIdText, int offset) {
             emit requestFailed(QStringLiteral("Unexpected queue-reorder response."));
             return;
         }
-        applyQueueCatalog(document.object().value(QStringLiteral("queues")).toArray());
+        applyQueueCatalog(controlResultObject(document.object())
+            .value(QStringLiteral("queues")).toArray());
         emit queueCatalogActionCompleted(QStringLiteral("reorder"), queueId);
     });
 }
@@ -992,14 +1111,17 @@ void NovaApiClient::moveTaskToQueue(const QString &taskIdText, const QString &qu
     if (taskId.isEmpty() || queueId.isEmpty()) {
         return;
     }
+    if (!controlPlaneCommandSupported(QStringLiteral("moveTask"))) {
+        emit requestFailed(QStringLiteral("Moving tasks between queues is unavailable in this Runtime."));
+        return;
+    }
 
-    const QString encodedQueue = QString::fromUtf8(QUrl::toPercentEncoding(queueId));
-    const QString encodedTask = QString::fromUtf8(QUrl::toPercentEncoding(taskId));
-    auto *reply = m_network.post(
-        makeRequest(
-            QStringLiteral("/api/queues/%1/tasks/%2").arg(encodedQueue, encodedTask)
-        ),
-        QByteArrayLiteral("{}")
+    auto *reply = postControlCommand(
+        QStringLiteral("moveTask"),
+        QJsonObject{
+            {QStringLiteral("taskId"), taskId},
+            {QStringLiteral("queueId"), queueId},
+        }
     );
     connect(reply, &QNetworkReply::finished, this, [this, reply, taskId, queueId]() {
         const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
@@ -1013,7 +1135,8 @@ void NovaApiClient::moveTaskToQueue(const QString &taskIdText, const QString &qu
             emit requestFailed(QStringLiteral("Unexpected queue-move response."));
             return;
         }
-        applyQueueCatalog(document.object().value(QStringLiteral("queues")).toArray());
+        applyQueueCatalog(controlResultObject(document.object())
+            .value(QStringLiteral("queues")).toArray());
         emit queueCatalogActionCompleted(QStringLiteral("move-task"), queueId);
         emit queueActionCompleted(taskId);
         refreshDownloads();
@@ -1031,6 +1154,10 @@ void NovaApiClient::moveQueueTask(
     if (queueId.isEmpty() || taskId.isEmpty() || offset == 0) {
         return;
     }
+    if (!controlPlaneCommandSupported(QStringLiteral("reorderQueueTasks"))) {
+        emit requestFailed(QStringLiteral("Task ordering is unavailable in this Runtime."));
+        return;
+    }
 
     QStringList taskIds = orderedQueueTaskIds(queueId);
     const int from = taskIds.indexOf(taskId);
@@ -1044,12 +1171,12 @@ void NovaApiClient::moveQueueTask(
     for (const QString &id : taskIds) {
         order.append(id);
     }
-    QJsonObject body{{QStringLiteral("taskIds"), order}};
-
-    const QString encodedQueue = QString::fromUtf8(QUrl::toPercentEncoding(queueId));
-    auto *reply = m_network.post(
-        makeRequest(QStringLiteral("/api/queues/%1/tasks/reorder").arg(encodedQueue)),
-        QJsonDocument(body).toJson(QJsonDocument::Compact)
+    auto *reply = postControlCommand(
+        QStringLiteral("reorderQueueTasks"),
+        QJsonObject{
+            {QStringLiteral("queueId"), queueId},
+            {QStringLiteral("taskIds"), order},
+        }
     );
     connect(reply, &QNetworkReply::finished, this, [this, reply, queueId, taskId]() {
         const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
@@ -1063,7 +1190,8 @@ void NovaApiClient::moveQueueTask(
             emit requestFailed(QStringLiteral("Unexpected queue-task reorder response."));
             return;
         }
-        applyQueueCatalog(document.object().value(QStringLiteral("queues")).toArray());
+        applyQueueCatalog(controlResultObject(document.object())
+            .value(QStringLiteral("queues")).toArray());
         emit queueCatalogActionCompleted(QStringLiteral("reorder-task"), queueId);
         emit queueActionCompleted(taskId);
     });
@@ -1075,13 +1203,14 @@ void NovaApiClient::startQueue(const QString &queueIdText) {
         emit requestFailed(QStringLiteral("Queue was not found."));
         return;
     }
-
-    const QString encodedId = QString::fromUtf8(QUrl::toPercentEncoding(queueId));
-    QNetworkRequest request = makeRequest(
-        QStringLiteral("/api/queues/%1/start").arg(encodedId)
+    if (!controlPlaneCommandSupported(QStringLiteral("startQueue"))) {
+        emit requestFailed(QStringLiteral("Starting queues is unavailable in this Runtime."));
+        return;
+    }
+    auto *reply = postControlCommand(
+        QStringLiteral("startQueue"),
+        QJsonObject{{QStringLiteral("queueId"), queueId}}
     );
-    request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
-    auto *reply = m_network.post(request, QByteArrayLiteral("{}"));
     connect(reply, &QNetworkReply::finished, this, [this, reply, queueId]() {
         const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
         const QByteArray payload = reply->readAll();
@@ -1094,7 +1223,8 @@ void NovaApiClient::startQueue(const QString &queueIdText) {
             emit requestFailed(QStringLiteral("Unexpected queue-start response."));
             return;
         }
-        applyQueueCatalog(document.object().value(QStringLiteral("queues")).toArray());
+        applyQueueCatalog(controlResultObject(document.object())
+            .value(QStringLiteral("queues")).toArray());
         emit queueCatalogActionCompleted(QStringLiteral("start"), queueId);
         refreshDownloads();
         refreshQueue();
@@ -1106,13 +1236,14 @@ void NovaApiClient::stopQueue(const QString &queueIdText) {
     if (queueId.isEmpty()) {
         return;
     }
-
-    const QString encodedId = QString::fromUtf8(QUrl::toPercentEncoding(queueId));
-    QNetworkRequest request = makeRequest(
-        QStringLiteral("/api/queues/%1/stop").arg(encodedId)
+    if (!controlPlaneCommandSupported(QStringLiteral("stopQueue"))) {
+        emit requestFailed(QStringLiteral("Stopping queues is unavailable in this Runtime."));
+        return;
+    }
+    auto *reply = postControlCommand(
+        QStringLiteral("stopQueue"),
+        QJsonObject{{QStringLiteral("queueId"), queueId}}
     );
-    request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
-    auto *reply = m_network.post(request, QByteArrayLiteral("{}"));
     connect(reply, &QNetworkReply::finished, this, [this, reply, queueId]() {
         const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
         const QByteArray payload = reply->readAll();
@@ -1125,7 +1256,8 @@ void NovaApiClient::stopQueue(const QString &queueIdText) {
             emit requestFailed(QStringLiteral("Unexpected queue-stop response."));
             return;
         }
-        applyQueueCatalog(document.object().value(QStringLiteral("queues")).toArray());
+        applyQueueCatalog(controlResultObject(document.object())
+            .value(QStringLiteral("queues")).toArray());
         emit queueCatalogActionCompleted(QStringLiteral("stop"), queueId);
         refreshDownloads();
         refreshQueue();
@@ -1162,14 +1294,16 @@ void NovaApiClient::setQueuePriority(const QString &taskId, int priority) {
     if (trimmedId.isEmpty()) {
         return;
     }
-
-    QJsonObject body;
-    body.insert(QStringLiteral("task_id"), trimmedId);
-    body.insert(QStringLiteral("priority"), qBound(0, priority, 4));
-
-    auto *reply = m_network.post(
-        makeRequest(QStringLiteral("/api/engine/queue")),
-        QJsonDocument(body).toJson(QJsonDocument::Compact)
+    if (!controlPlaneCommandSupported(QStringLiteral("setTaskPriority"))) {
+        emit requestFailed(QStringLiteral("Task priority changes are unavailable in this Runtime."));
+        return;
+    }
+    auto *reply = postControlCommand(
+        QStringLiteral("setTaskPriority"),
+        QJsonObject{
+            {QStringLiteral("taskId"), trimmedId},
+            {QStringLiteral("priority"), qBound(0, priority, 4)},
+        }
     );
 
     connect(reply, &QNetworkReply::finished, this, [this, reply, trimmedId]() {
@@ -1186,7 +1320,7 @@ void NovaApiClient::setQueuePriority(const QString &taskId, int priority) {
 }
 
 void NovaApiClient::refreshScheduler() {
-    auto *reply = m_network.get(makeRequest(QStringLiteral("/api/engine/scheduler")));
+    auto *reply = postControlQuery(QStringLiteral("listSchedules"));
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
         const QByteArray payload = reply->readAll();
@@ -1201,7 +1335,7 @@ void NovaApiClient::refreshScheduler() {
             return;
         }
 
-        const QJsonObject root = document.object();
+        const QJsonObject root = controlResultObject(document.object());
         m_schedulerRules = root.value(QStringLiteral("rules")).toArray().toVariantList();
         m_activeSchedulerRuleIds = root.value(QStringLiteral("active_rule_ids")).toArray().toVariantList();
         m_schedulerPowerCommandsEnabled =
@@ -1221,10 +1355,13 @@ void NovaApiClient::refreshScheduler() {
 }
 
 void NovaApiClient::setSchedulerPowerCommandsEnabled(bool enabled) {
-    QJsonObject body{{QStringLiteral("enabled"), enabled}};
-    auto *reply = m_network.post(
-        makeRequest(QStringLiteral("/api/engine/scheduler/power-commands")),
-        QJsonDocument(body).toJson(QJsonDocument::Compact)
+    if (!controlPlaneCommandSupported(QStringLiteral("setSchedulerPowerCommands"))) {
+        emit requestFailed(QStringLiteral("Scheduler power actions are unavailable in this Runtime."));
+        return;
+    }
+    auto *reply = postControlCommand(
+        QStringLiteral("setSchedulerPowerCommands"),
+        QJsonObject{{QStringLiteral("enabled"), enabled}}
     );
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
@@ -1239,7 +1376,6 @@ void NovaApiClient::setSchedulerPowerCommandsEnabled(bool enabled) {
 
 void NovaApiClient::sendSchedulerRule(
     const QJsonObject &rule,
-    const QString &path,
     const QString &action
 ) {
     if (rule.value(QStringLiteral("id")).toString().trimmed().isEmpty()) {
@@ -1247,11 +1383,16 @@ void NovaApiClient::sendSchedulerRule(
         return;
     }
 
-    QJsonObject body;
-    body.insert(QStringLiteral("rule"), rule);
-    auto *reply = m_network.post(
-        makeRequest(path),
-        QJsonDocument(body).toJson(QJsonDocument::Compact)
+    const QString commandType = action == QStringLiteral("add")
+        ? QStringLiteral("addSchedule")
+        : QStringLiteral("updateSchedule");
+    if (!controlPlaneCommandSupported(commandType)) {
+        emit requestFailed(QStringLiteral("Scheduler rule changes are unavailable in this Runtime."));
+        return;
+    }
+    auto *reply = postControlCommand(
+        commandType,
+        QJsonObject{{QStringLiteral("request"), rule}}
     );
 
     const QString ruleId = rule.value(QStringLiteral("id")).toString();
@@ -1271,7 +1412,6 @@ void NovaApiClient::sendSchedulerRule(
 void NovaApiClient::addSchedulerRule(const QVariantMap &rule) {
     sendSchedulerRule(
         QJsonObject::fromVariantMap(rule),
-        QStringLiteral("/api/engine/scheduler"),
         QStringLiteral("add")
     );
 }
@@ -1286,7 +1426,6 @@ void NovaApiClient::setSchedulerRuleEnabled(const QString &ruleId, bool enabled)
         map.insert(QStringLiteral("enabled"), enabled);
         sendSchedulerRule(
             QJsonObject::fromVariantMap(map),
-            QStringLiteral("/api/engine/scheduler/update"),
             enabled ? QStringLiteral("enable") : QStringLiteral("disable")
         );
         return;
@@ -1301,9 +1440,13 @@ void NovaApiClient::deleteSchedulerRule(const QString &ruleId) {
         return;
     }
 
-    const QString encodedId = QString::fromUtf8(QUrl::toPercentEncoding(trimmedId));
-    auto *reply = m_network.deleteResource(
-        makeRequest(QStringLiteral("/api/engine/scheduler/%1").arg(encodedId))
+    if (!controlPlaneCommandSupported(QStringLiteral("deleteSchedule"))) {
+        emit requestFailed(QStringLiteral("Deleting scheduler rules is unavailable in this Runtime."));
+        return;
+    }
+    auto *reply = postControlCommand(
+        QStringLiteral("deleteSchedule"),
+        QJsonObject{{QStringLiteral("scheduleId"), trimmedId}}
     );
 
     connect(reply, &QNetworkReply::finished, this, [this, reply, trimmedId]() {
@@ -1345,6 +1488,10 @@ void NovaApiClient::importBatch(
     if (m_engineCapabilities.contains(QStringLiteral("directReady"))
         && !m_engineCapabilities.value(QStringLiteral("directReady")).toBool()) {
         emit requestFailed(QStringLiteral("The NOVA direct-download engine is not ready."));
+        return;
+    }
+    if (!controlPlaneCommandSupported(QStringLiteral("addDownload"))) {
+        emit requestFailed(QStringLiteral("Direct downloads are unavailable in this Runtime."));
         return;
     }
 
@@ -1496,45 +1643,56 @@ void NovaApiClient::sendNextBatchRequest() {
         return;
     }
 
-    const QString urlText = m_batchUrls.at(m_batchNextIndex++);
-    const QUrl url(urlText);
-    QString fileName = QFileInfo(url.path()).fileName();
-    if (fileName.isEmpty()) {
-        fileName = QStringLiteral("download");
+    constexpr qsizetype maxCommandsPerBatch = 128;
+    QJsonArray commands;
+    while (m_batchNextIndex < m_batchUrls.size() && commands.size() < maxCommandsPerBatch) {
+        const QString urlText = m_batchUrls.at(m_batchNextIndex++);
+        const QUrl url(urlText);
+        QString fileName = QFileInfo(url.path()).fileName();
+        if (fileName.isEmpty()) {
+            fileName = QStringLiteral("download");
+        }
+
+        QJsonObject request;
+        request.insert(QStringLiteral("url"), urlText);
+        request.insert(QStringLiteral("name"), fileName);
+        request.insert(QStringLiteral("fileType"), QStringLiteral("other"));
+        request.insert(QStringLiteral("category"), QStringLiteral("other"));
+        request.insert(QStringLiteral("queueId"), m_batchQueueId);
+        request.insert(QStringLiteral("connections"), m_batchConnections);
+        request.insert(QStringLiteral("resumable"), true);
+        request.insert(QStringLiteral("description"), QStringLiteral("Native batch import"));
+        request.insert(QStringLiteral("startImmediately"), m_batchStartImmediately);
+
+        if (!m_batchSaveDirectory.isEmpty()) {
+            request.insert(
+                QStringLiteral("savePath"),
+                QDir(m_batchSaveDirectory).filePath(fileName)
+            );
+        }
+        if (!m_batchAdvancedOptions.isEmpty()) {
+            request.insert(
+                QStringLiteral("directOptions"),
+                QJsonObject::fromVariantMap(m_batchAdvancedOptions)
+            );
+        }
+        commands.append(QJsonObject{
+            {QStringLiteral("type"), QStringLiteral("addDownload")},
+            {QStringLiteral("request"), request},
+        });
     }
 
-    QJsonObject body;
-    body.insert(QStringLiteral("url"), urlText);
-    body.insert(QStringLiteral("name"), fileName);
-    body.insert(QStringLiteral("fileType"), QStringLiteral("other"));
-    body.insert(QStringLiteral("category"), QStringLiteral("other"));
-    body.insert(QStringLiteral("queueId"), m_batchQueueId);
-    body.insert(QStringLiteral("connections"), m_batchConnections);
-    body.insert(QStringLiteral("resumable"), true);
-    body.insert(QStringLiteral("description"), QStringLiteral("Native batch import"));
-    body.insert(QStringLiteral("startImmediately"), m_batchStartImmediately);
-
-    if (!m_batchSaveDirectory.isEmpty()) {
-        body.insert(
-            QStringLiteral("savePath"),
-            QDir(m_batchSaveDirectory).filePath(fileName)
-        );
-    }
-
-    if (!m_batchAdvancedOptions.isEmpty()) {
-        body.insert(
-            QStringLiteral("directOptions"),
-            QJsonObject::fromVariantMap(m_batchAdvancedOptions)
-        );
-    }
-
+    const int batchSize = static_cast<int>(commands.size());
     ++m_batchInFlight;
-    auto *reply = m_network.post(
-        makeRequest(QStringLiteral("/api/downloads")),
-        QJsonDocument(body).toJson(QJsonDocument::Compact)
+    auto *reply = postControlCommand(
+        QStringLiteral("batch"),
+        QJsonObject{
+            {QStringLiteral("mode"), QStringLiteral("bestEffort")},
+            {QStringLiteral("commands"), commands},
+        }
     );
 
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, batchSize]() {
         const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
         const QByteArray payload = reply->readAll();
 
@@ -1542,12 +1700,20 @@ void NovaApiClient::sendNextBatchRequest() {
         if (reply->error() == QNetworkReply::NoError) {
             const QJsonDocument document = QJsonDocument::fromJson(payload);
             if (document.isObject()) {
-                ++m_batchAccepted;
+                const QJsonObject result = document.object().value(QStringLiteral("result")).toObject();
+                const int succeeded = result.value(QStringLiteral("succeeded")).toInt(-1);
+                const int failed = result.value(QStringLiteral("failed")).toInt(-1);
+                if (succeeded >= 0 && failed >= 0 && succeeded + failed == batchSize) {
+                    m_batchAccepted += succeeded;
+                    m_batchFailed += failed;
+                } else {
+                    m_batchFailed += batchSize;
+                }
             } else {
-                ++m_batchFailed;
+                m_batchFailed += batchSize;
             }
         } else {
-            ++m_batchFailed;
+            m_batchFailed += batchSize;
         }
 
         const int completed = m_batchAccepted + m_batchFailed;
@@ -1684,6 +1850,14 @@ void NovaApiClient::createMediaDownload(
     const QVariantMap &mediaOptions,
     bool startImmediately
 ) {
+    const bool playlistRequest = mediaOptions.value(QStringLiteral("playlist")).toBool();
+    const QString capabilityId = playlistRequest
+        ? QStringLiteral("addMediaPlaylist")
+        : QStringLiteral("addMediaDownload");
+    if (!controlPlaneCommandSupported(capabilityId)) {
+        emit requestFailed(QStringLiteral("The Runtime does not report this media operation as available."));
+        return;
+    }
     const QString url = urlText.trimmed();
     if (url.isEmpty()) {
         emit mediaProbeFailed(QStringLiteral("Enter a media URL."));
@@ -1736,11 +1910,9 @@ void NovaApiClient::createMediaDownload(
         );
     }
 
-    auto *reply = m_network.post(
-        makeRequest(playlistBatch
-            ? QStringLiteral("/api/media/playlist/download")
-            : QStringLiteral("/api/downloads")),
-        QJsonDocument(body).toJson(QJsonDocument::Compact)
+    auto *reply = postControlCommand(
+        playlistBatch ? QStringLiteral("addMediaPlaylist") : QStringLiteral("addMediaDownload"),
+        QJsonObject{{QStringLiteral("request"), body}}
     );
 
     connect(reply, &QNetworkReply::finished, this, [this, reply, playlistBatch]() {
@@ -1757,8 +1929,8 @@ void NovaApiClient::createMediaDownload(
             return;
         }
 
+        const QJsonObject result = document.object().value(QStringLiteral("result")).toObject();
         if (playlistBatch) {
-            const QJsonObject result = document.object();
             const int accepted = result.value(QStringLiteral("accepted")).toInt();
             const int failed = result.value(QStringLiteral("failed")).toInt();
             QStringList failureMessages;
@@ -1775,7 +1947,7 @@ void NovaApiClient::createMediaDownload(
             return;
         }
 
-        const QString taskId = document.object().value(QStringLiteral("id")).toString();
+        const QString taskId = result.value(QStringLiteral("id")).toString();
         emit mediaDownloadCreated(taskId);
         refreshDownloads();
         refreshQueue();
@@ -1926,7 +2098,7 @@ void NovaApiClient::refreshEngineCapabilities() {
 }
 
 void NovaApiClient::refreshEngineProfiles() {
-    auto *reply = m_network.get(makeRequest(QStringLiteral("/api/engine/profiles")));
+    auto *reply = postControlQuery(QStringLiteral("listProfiles"));
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
         const QByteArray payload = reply->readAll();
@@ -1941,7 +2113,7 @@ void NovaApiClient::refreshEngineProfiles() {
             return;
         }
 
-        const QJsonObject root = document.object();
+        const QJsonObject root = controlResultObject(document.object());
         m_engineProfiles = root.value(QStringLiteral("profiles")).toArray().toVariantList();
         m_activeEngineProfile = root.value(QStringLiteral("active_profile")).toString();
         emit engineManagementChanged();
@@ -1953,12 +2125,13 @@ void NovaApiClient::setActiveEngineProfile(const QString &profileId) {
     if (id.isEmpty()) {
         return;
     }
-
-    QJsonObject body;
-    body.insert(QStringLiteral("profile_id"), id);
-    auto *reply = m_network.post(
-        makeRequest(QStringLiteral("/api/engine/profiles")),
-        QJsonDocument(body).toJson(QJsonDocument::Compact)
+    if (!controlPlaneCommandSupported(QStringLiteral("setActiveProfile"))) {
+        emit engineManagementFailed(QStringLiteral("Changing the active profile is unavailable in this Runtime."));
+        return;
+    }
+    auto *reply = postControlCommand(
+        QStringLiteral("setActiveProfile"),
+        QJsonObject{{QStringLiteral("profileId"), id}}
     );
 
     connect(reply, &QNetworkReply::finished, this, [this, reply, id]() {
@@ -1970,7 +2143,8 @@ void NovaApiClient::setActiveEngineProfile(const QString &profileId) {
         }
 
         const QJsonDocument document = QJsonDocument::fromJson(payload);
-        if (!document.isObject() || !document.object().value(QStringLiteral("ok")).toBool()) {
+        if (!document.isObject()
+            || !controlResultObject(document.object()).value(QStringLiteral("ok")).toBool()) {
             emit engineManagementFailed(QStringLiteral("The engine rejected this profile."));
             return;
         }
@@ -2974,6 +3148,10 @@ void NovaApiClient::createTorrent(
     bool allowDuplicate,
     const QString &captureReviewId
 ) {
+    if (!controlPlaneCommandSupported(QStringLiteral("addTorrent"))) {
+        emit torrentTaskCreationFailed(QStringLiteral("Torrent creation is unavailable in this Runtime."));
+        return;
+    }
     const QString trimmedAnalysisId = analysisId.trimmed();
     const QString trimmedPath = savePath.trimmed();
     if (!m_connected || trimmedAnalysisId.isEmpty() || trimmedPath.isEmpty()) {
@@ -2998,14 +3176,20 @@ void NovaApiClient::createTorrent(
     body.insert(QStringLiteral("allowDuplicate"), allowDuplicate);
 
     const QString id = captureReviewId.trimmed();
-    const QString route = id.isEmpty()
-        ? QStringLiteral("/api/torrents")
-        : QStringLiteral("/v1/capture-reviews/%1/consume-torrent")
-              .arg(QString::fromUtf8(QUrl::toPercentEncoding(id)));
-    auto *reply = m_network.post(
-        makeRequest(route),
-        QJsonDocument(body).toJson(QJsonDocument::Compact)
-    );
+    QNetworkReply *reply = nullptr;
+    if (id.isEmpty()) {
+        reply = postControlCommand(
+            QStringLiteral("addTorrent"),
+            QJsonObject{{QStringLiteral("request"), body}}
+        );
+    } else {
+        const QString route = QStringLiteral("/v1/capture-reviews/%1/consume-torrent")
+            .arg(QString::fromUtf8(QUrl::toPercentEncoding(id)));
+        reply = m_network.post(
+            makeRequest(route),
+            QJsonDocument(body).toJson(QJsonDocument::Compact)
+        );
+    }
     connect(reply, &QNetworkReply::finished, this, [this, reply, id]() {
         const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
         const QByteArray responseBody = reply->readAll();
@@ -3019,7 +3203,9 @@ void NovaApiClient::createTorrent(
             emit torrentTaskCreationFailed(QStringLiteral("Unexpected torrent task response."));
             return;
         }
-        const QJsonObject response = document.object();
+        const QJsonObject response = id.isEmpty()
+            ? document.object().value(QStringLiteral("result")).toObject()
+            : document.object();
         if (!id.isEmpty() && !response.value(QStringLiteral("accepted")).toBool()) {
             emit torrentTaskCreationFailed(
                 response.value(QStringLiteral("message")).toString(

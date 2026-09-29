@@ -1,3 +1,4 @@
+pub mod commands;
 pub mod common;
 pub mod diagnostics;
 pub mod dns_routes;
@@ -21,6 +22,7 @@ pub use self::engine::run_scheduler_tick;
 pub use self::diagnostics::record_daemon_start;
 
 pub fn register_routes(router: Router<SharedState>) -> Router<SharedState> {
+    let router = commands::register_routes(router);
     let router = downloads::register_routes(router);
     let router = queues::register_routes(router);
     let router = engine::register_routes(router);
