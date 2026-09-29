@@ -82,8 +82,8 @@ Item {
         const engines = api.engineCapabilities.engines || ({})
         const media = engines.media || ({})
         const capabilities = media.capabilities || ({})
-        const localCodecs = capabilities.localCodecs || ({})
-        const codec = track === "video" ? localCodecs.video || ({}) : localCodecs.audio || ({})
+        const codecRegistry = capabilities.nativeCodecRegistry || ({})
+        const codec = codecRegistry[track] || ({})
         const values = codec.outputContainers
         if (Array.isArray(values)) {
             for (let i = 0; i < values.length; ++i) {
@@ -102,8 +102,8 @@ Item {
         const engines = api.engineCapabilities.engines || ({})
         const media = engines.media || ({})
         const capabilities = media.capabilities || ({})
-        const localCodecs = capabilities.localCodecs || ({})
-        const codec = track === "video" ? localCodecs.video || ({}) : localCodecs.audio || ({})
+        const codecRegistry = capabilities.nativeCodecRegistry || ({})
+        const codec = codecRegistry[track] || ({})
         const encoders = codec.encoders
         if (!Array.isArray(encoders))
             return options
@@ -131,7 +131,7 @@ Item {
         const engines = api.engineCapabilities.engines || ({})
         const media = engines.media || ({})
         const capabilities = media.capabilities || ({})
-        const codecs = capabilities.localCodecs || ({})
+        const codecs = capabilities.nativeCodecRegistry || ({})
         const audio = codecs.audio || ({})
         const video = codecs.video || ({})
         return (Array.isArray(audio.encoders) && audio.encoders.length > 0)
@@ -142,7 +142,7 @@ Item {
         const engines = api.engineCapabilities.engines || ({})
         const media = engines.media || ({})
         const capabilities = media.capabilities || ({})
-        const codecs = capabilities.localCodecs || ({})
+        const codecs = capabilities.nativeCodecRegistry || ({})
         const containers = codecs.subtitleContainers || []
         return Array.isArray(containers) && containers.indexOf(String(container || "")) >= 0
     }

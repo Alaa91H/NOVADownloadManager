@@ -105,6 +105,7 @@ internal object NovaNativeCore {
     )
 
     internal data class NativeMediaCodecCapabilities(
+        val capabilityRegistryVersion: Int,
         val audio: NativeMediaCodecTrackCapabilities,
         val video: NativeMediaCodecTrackCapabilities,
         val demuxers: List<String>,
@@ -431,6 +432,7 @@ internal object NovaNativeCore {
         }
 
         return NativeMediaCodecCapabilities(
+            capabilityRegistryVersion = root.optInt("capabilityRegistryVersion", 0),
             audio = track("audio"),
             video = track("video"),
             demuxers = strings(root.optJSONArray("demuxers")),

@@ -190,6 +190,7 @@ pub struct MobileMediaCodecTrackCapabilities {
 
 #[derive(Clone, Debug, Eq, PartialEq, uniffi::Record)]
 pub struct MobileMediaCodecCapabilities {
+    pub capability_registry_version: u32,
     pub audio: MobileMediaCodecTrackCapabilities,
     pub video: MobileMediaCodecTrackCapabilities,
     pub demuxers: Vec<String>,
@@ -1351,6 +1352,7 @@ fn mobile_codec_track_capabilities(
 pub fn native_media_codec_capabilities() -> MobileMediaCodecCapabilities {
     let capabilities = nova_media_processing_core::native_media_codec_capabilities();
     MobileMediaCodecCapabilities {
+        capability_registry_version: nova_core_model::CAPABILITY_REGISTRY_CONTRACT_VERSION,
         audio: mobile_codec_track_capabilities(capabilities.audio),
         video: mobile_codec_track_capabilities(capabilities.video),
         demuxers: capabilities.demuxers,
@@ -1525,6 +1527,7 @@ fn mobile_media_descriptor_json(descriptor: &MobileMediaDescriptor) -> String {
 fn mobile_media_codec_capabilities_json() -> String {
     let capabilities = nova_media_processing_core::native_media_codec_capabilities();
     serde_json::json!({
+        "capabilityRegistryVersion": nova_core_model::CAPABILITY_REGISTRY_CONTRACT_VERSION,
         "audio": capabilities.audio,
         "video": capabilities.video,
         "demuxers": capabilities.demuxers,
@@ -2314,6 +2317,10 @@ mod tests {
     fn mobile_codec_registry_json_has_runtime_track_and_container_matrices() {
         let value: serde_json::Value = serde_json::from_str(&mobile_media_codec_capabilities_json())
             .expect("codec capability JSON");
+        assert_eq!(
+            value["capabilityRegistryVersion"],
+            nova_core_model::CAPABILITY_REGISTRY_CONTRACT_VERSION
+        );
         assert!(value["audio"]["decoders"].is_array());
         assert!(value["audio"]["encoders"].is_array());
         assert!(value["audio"]["encodersByContainer"].is_object());

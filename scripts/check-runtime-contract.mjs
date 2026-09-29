@@ -8,6 +8,9 @@ const rustModel = read('crates/nova-core-model/src/lib.rs');
 const engineCapabilities = read('src-tauri/src/daemon/engine_capabilities.rs');
 const engineRoutes = read('src-tauri/src/daemon/routes/engine.rs');
 const extensionSchema = read('browser-extension/src/contracts/capabilities.schema.ts');
+const mobileFfi = read('crates/nova-mobile-ffi/src/lib.rs');
+const androidNativeCore = read('android/app/src/main/java/com/nova/downloadmanager/core/NovaNativeCore.kt');
+const desktopMediaPage = read('desktop-native/qml/pages/MediaDownloaderPage.qml');
 
 const errors = [];
 const expectedStates = contract.taskLifecycle.states;
@@ -45,6 +48,9 @@ const requiredSourceFragments = [
   [engineRoutes, '"taskLifecycle": status.get("taskLifecycle")', 'extension capability lifecycle propagation'],
   [extensionSchema, 'contractVersion: z.number().int().min(1)', 'extension contract version schema'],
   [extensionSchema, 'capabilityRegistryVersion: z.number().int().min(1)', 'extension capability registry version schema'],
+  [mobileFfi, '"capabilityRegistryVersion": nova_core_model::CAPABILITY_REGISTRY_CONTRACT_VERSION', 'Android FFI capability registry version'],
+  [androidNativeCore, 'capabilityRegistryVersion = root.optInt("capabilityRegistryVersion", 0)', 'Android capability registry version parsing'],
+  [desktopMediaPage, 'capabilities.nativeCodecRegistry', 'Qt media capability registry consumption'],
   [extensionSchema, "cancelSemantics: z.literal('remove')", 'extension cancel semantics schema'],
   [extensionSchema, "unknownStatePolicy: z.literal('reject')", 'extension unknown-state policy'],
 ];

@@ -1244,6 +1244,8 @@ pub fn native_media_status() -> Value {
                 "inputExtensions": input_containers,
                 "outputExtensions": output_containers
             },
+            "audio": &available.audio,
+            "video": &available.video,
             "demuxers": &available.demuxers,
             "muxers": &available.muxers,
             "videoDecoders": &available.video.decoders,
@@ -1694,6 +1696,10 @@ mod tests {
             status["capabilities"]["nativeCodecRegistry"]["source"],
             "nova-media-processing-core"
         );
+        assert!(status["capabilities"]["nativeCodecRegistry"]["audio"]["encodersByContainer"]
+            .is_object());
+        assert!(status["capabilities"]["nativeCodecRegistry"]["video"]["encodersByContainer"]
+            .is_object());
         for key in [
             "demuxers",
             "muxers",
