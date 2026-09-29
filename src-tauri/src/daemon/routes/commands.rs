@@ -664,7 +664,7 @@ async fn execute_single(
                     true,
                 ));
             }
-            activate_runtime_profile(&state);
+            activate_runtime_profile(state);
             Ok(serde_json::json!({"ok": true, "profile_id": profile_id}))
         }
         ControlCommand::UpsertProfile { request } => {
@@ -676,7 +676,7 @@ async fn execute_single(
                 .try_add_profile(profile)
                 .map_err(profile_write_error)?;
             if state.profile_manager.active_profile().id == profile_id {
-                activate_runtime_profile(&state);
+                activate_runtime_profile(state);
             }
             Ok(serde_json::json!({"ok": true, "profile_id": profile_id}))
         }
@@ -706,7 +706,7 @@ async fn execute_single(
                     }
                 })?;
             if removed_active_profile.is_some() {
-                activate_runtime_profile(&state);
+                activate_runtime_profile(state);
             }
             Ok(serde_json::json!({"ok": true, "profile_id": profile_id}))
         }

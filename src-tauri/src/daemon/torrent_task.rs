@@ -2041,7 +2041,7 @@ mod tests {
 
     #[test]
     fn torrent_duplicate_check_matches_only_the_native_torrent_info_hash() {
-        let tasks = vec![
+        let tasks = [
             task_for_duplicate_check("ordinary", "curl", "same-hash"),
             task_for_duplicate_check("different", TORRENT_ENGINE_ID, "different-hash"),
             task_for_duplicate_check("torrent-existing", TORRENT_ENGINE_ID, "ABCDEF"),

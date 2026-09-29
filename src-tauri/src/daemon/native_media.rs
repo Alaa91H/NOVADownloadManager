@@ -1298,6 +1298,8 @@ fn embed_native_output_subtitles(
     embed_subtitles_with_native_codecs(&request, control, &|_| {}).map(Some)
 }
 
+// The worker boundary keeps task identity, generation, transfer paths, and independent controls explicit.
+#[allow(clippy::too_many_arguments)]
 fn run_native_separate_track_execution(
     state: &SharedState,
     id: &str,
@@ -1565,6 +1567,8 @@ fn verify_native_track(path: &Path, expected_bytes: u64, label: &str) -> Result<
     Ok(())
 }
 
+// These callbacks represent separate lifecycle decisions and progress reporting for the transfer.
+#[allow(clippy::too_many_arguments)]
 fn stage_manifest_transfer<F, P>(
     resolved: &ResolvedManifestMedia,
     options: Option<&MediaDownloadOptions>,
@@ -1701,7 +1705,7 @@ fn hls_manifest_container(manifest: &nova_stream_core::HlsManifest) -> Option<St
     let segment = manifest.segments.first()?;
     let path = segment
         .uri
-        .split(|character| character == '?' || character == '#')
+        .split(['?', '#'])
         .next()
         .unwrap_or(&segment.uri);
     let extension = Path::new(path)
@@ -2247,9 +2251,9 @@ fn dash_representation_kind(
         .to_ascii_lowercase();
     if mime_type.starts_with("audio/") || content_type == "audio" {
         DashTrackKind::Audio
-    } else if mime_type.starts_with("video/") || content_type == "video" {
-        DashTrackKind::Video
-    } else if dash_representation_codec(adaptation, representation, false).is_some()
+    } else if mime_type.starts_with("video/")
+        || content_type == "video"
+        || dash_representation_codec(adaptation, representation, false).is_some()
         || representation.width.is_some()
         || representation.height.is_some()
     {
@@ -2332,7 +2336,7 @@ fn dash_track_container(
         .chain(plan.units.iter().map(|unit| &unit.url))
     {
         let path = value
-            .split(|character| character == '?' || character == '#')
+        .split(['?', '#'])
             .next()
             .unwrap_or(value);
         let Some(extension) = Path::new(path)
@@ -2409,6 +2413,8 @@ fn dash_representation_metadata(
     })
 }
 
+// DASH track staging consumes one selected representation plus its transfer controls and callbacks.
+#[allow(clippy::too_many_arguments)]
 fn stage_dash_manifest_track<F, P>(
     manifest: &DashManifest,
     manifest_url: &str,
@@ -3627,6 +3633,8 @@ where
     }
 }
 
+// Live HLS staging has independent stop, finish, notification, and progress callbacks.
+#[allow(clippy::too_many_arguments)]
 fn stage_hls_live_stream<F, P>(
     media_url: &str,
     initial_manifest: nova_stream_core::HlsManifest,
@@ -5239,6 +5247,8 @@ fn audio_codec_for_output(value: &str) -> Option<&'static str> {
     }
 }
 
+// Stream-selection metadata is kept explicit here so the plan builder remains deterministic.
+#[allow(clippy::too_many_arguments)]
 fn build_media_transcode_request(
     options: Option<&MediaDownloadOptions>,
     media_path: &Path,
@@ -5330,7 +5340,7 @@ fn build_media_transcode_request(
         audio_bitrate_bps,
         quality_crf: include_video.then_some(options.transcode_crf).flatten(),
         preset: include_video
-            .then(|| options.transcode_preset.as_deref())
+            .then_some(options.transcode_preset.as_deref())
             .flatten()
             .map(str::trim)
             .filter(|value| !value.is_empty())
@@ -7257,10 +7267,8 @@ mod tests {
         let expected_download_bytes = (period_zero.len() + period_one.len()) as u64;
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind multi-period DASH server");
         let address = listener.local_addr().expect("multi-period DASH address");
-        let manifest = format!(
-            "<MPD type=\"static\" mediaPresentationDuration=\"PT2S\"><Period id=\"p0\" start=\"PT0S\" duration=\"PT1S\"><AdaptationSet contentType=\"video\" mimeType=\"video/mp4\" codecs=\"avc1.42001e\"><Representation id=\"v0\" bandwidth=\"1000\" width=\"640\" height=\"360\"><BaseURL>period-zero.mp4</BaseURL></Representation></AdaptationSet></Period><Period id=\"p1\" start=\"PT1S\" duration=\"PT1S\"><AdaptationSet contentType=\"video\" mimeType=\"video/mp4\" codecs=\"avc1.42001e\"><Representation id=\"v1\" bandwidth=\"1000\" width=\"640\" height=\"360\"><BaseURL>period-one.mp4</BaseURL></Representation></AdaptationSet></Period></MPD>"
-        )
-        .into_bytes();
+        let manifest = br#"<MPD type="static" mediaPresentationDuration="PT2S"><Period id="p0" start="PT0S" duration="PT1S"><AdaptationSet contentType="video" mimeType="video/mp4" codecs="avc1.42001e"><Representation id="v0" bandwidth="1000" width="640" height="360"><BaseURL>period-zero.mp4</BaseURL></Representation></AdaptationSet></Period><Period id="p1" start="PT1S" duration="PT1S"><AdaptationSet contentType="video" mimeType="video/mp4" codecs="avc1.42001e"><Representation id="v1" bandwidth="1000" width="640" height="360"><BaseURL>period-one.mp4</BaseURL></Representation></AdaptationSet></Period></MPD>"#
+        .to_vec();
         let server = std::thread::spawn(move || {
             for _ in 0..3 {
                 let (mut stream, _) = listener.accept().expect("accept multi-period DASH request");
@@ -7602,9 +7610,7 @@ mod tests {
         });
         let manifest_url = format!("http://{address}/live.mpd");
         let manifest = parse_dash(
-            &format!(
-                "<MPD type=\"dynamic\" minimumUpdatePeriod=\"PT1S\"><Period><AdaptationSet contentType=\"video\"><SegmentTemplate timescale=\"1\" initialization=\"init.mp4\" media=\"$Time$.m4s\"><SegmentTimeline><S t=\"10\" d=\"2\"/></SegmentTimeline></SegmentTemplate><Representation id=\"v1\" bandwidth=\"1000\" width=\"640\" height=\"360\"/></AdaptationSet></Period></MPD>"
-            ),
+            "<MPD type=\"dynamic\" minimumUpdatePeriod=\"PT1S\"><Period><AdaptationSet contentType=\"video\"><SegmentTemplate timescale=\"1\" initialization=\"init.mp4\" media=\"$Time$.m4s\"><SegmentTimeline><S t=\"10\" d=\"2\"/></SegmentTimeline></SegmentTemplate><Representation id=\"v1\" bandwidth=\"1000\" width=\"640\" height=\"360\"/></AdaptationSet></Period></MPD>",
         )
         .expect("parse dynamic DASH fixture");
         let (period, adaptation, representation) =

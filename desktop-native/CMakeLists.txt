@@ -152,7 +152,7 @@ if(NOVA_BUILD_TESTS)
 
     add_test(
         NAME nova-native-parity
-        COMMAND nova-native-tests -o -,txt
+        COMMAND nova-native-tests
     )
     set_tests_properties(
         nova-native-parity
@@ -171,7 +171,7 @@ if(NOVA_BUILD_TESTS)
 
     add_test(
         NAME nova-native-display-scale-125
-        COMMAND nova-native-display-tests -o -,txt
+        COMMAND nova-native-display-tests
     )
     set_tests_properties(
         nova-native-display-scale-125
@@ -182,7 +182,7 @@ if(NOVA_BUILD_TESTS)
 
     add_test(
         NAME nova-native-display-scale-200
-        COMMAND nova-native-display-tests -o -,txt
+        COMMAND nova-native-display-tests
     )
     set_tests_properties(
         nova-native-display-scale-200
