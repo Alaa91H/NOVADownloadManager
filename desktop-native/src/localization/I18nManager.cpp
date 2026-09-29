@@ -1136,7 +1136,7 @@ const Dictionary &arabic() {
         {QStringLiteral("torrent.seedingEnabled"), QStringLiteral("مفعّلة")},
         {QStringLiteral("torrent.seedingDisabled"), QStringLiteral("معطّلة")},
         {QStringLiteral("torrent.swarmPeers"), QStringLiteral("أقران المتتبع / DHT / PEX")},
-        {QStringLiteral("torrent.dht"), QStringLiteral("DHT ‏v4 / ‏v6 / العقد")},
+        {QStringLiteral("torrent.dht"), QStringLiteral("DHT \u200Fv4 / \u200Fv6 / العقد")},
         {QStringLiteral("torrent.applyFiles"), QStringLiteral("تطبيق الملفات")},
         {QStringLiteral("torrent.completedFilesFixed"), QStringLiteral("لا يمكن تغيير الملفات بعد اكتمالها. أعد التنزيل لتغيير الاختيار.")},
         {QStringLiteral("torrent.pauseToEditFiles"), QStringLiteral("أوقف التورنت مؤقتًا أو ضعه في الطابور قبل تغيير أولويات الملفات.")},

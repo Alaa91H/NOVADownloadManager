@@ -190,7 +190,8 @@ QString NovaApiClient::controlPlaneCapabilityStatus(const QString &capabilityId)
     for (const QVariant &entryValue : capabilities) {
         const QVariantMap entry = entryValue.toMap();
         if (entry.value(QStringLiteral("id")).toString() == requestedId) {
-            return entry.value(QStringLiteral("status")).toString(QStringLiteral("unavailable"));
+            const QString status = entry.value(QStringLiteral("status")).toString();
+            return status.isEmpty() ? QStringLiteral("unavailable") : status;
         }
     }
     return QStringLiteral("unavailable");

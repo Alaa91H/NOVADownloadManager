@@ -2212,7 +2212,9 @@ mod tests {
     #[tokio::test]
     async fn capture_is_not_a_task_until_the_desktop_approves_it() {
         let state = review_test_state();
-        let original_url = "https://example.com/captured-file.zip";
+        // Avoid making this task-creation test depend on external DNS. The
+        // literal is public, so normal SSRF checks still run without a lookup.
+        let original_url = "https://1.1.1.1/captured-file.zip";
         let (review_id, duplicate) = queue_capture_review(
             &state,
             pending_capture_body(original_url),
@@ -2238,7 +2240,7 @@ mod tests {
         let Json(result) =
             handle_consume_capture_review(State(state.clone()), Path(review_id), Json(approved))
                 .await;
-        assert_eq!(result["ok"], true);
+        assert_eq!(result["ok"], true, "capture approval failed: {result}");
         assert_eq!(result["accepted"], true);
         let tasks = state.task_snapshot.lock().expect("task snapshot");
         assert_eq!(tasks.len(), 1);
