@@ -879,6 +879,7 @@ impl QueryEnvelope {
             ControlQuery::GetProfile { profile_id } => {
                 validate_identifier(profile_id, "profileId", 128)?;
             }
+            ControlQuery::ListProfiles => {}
             ControlQuery::ListRules => {}
             ControlQuery::ListSchedules => {}
             ControlQuery::GetTask { task_id } => {
