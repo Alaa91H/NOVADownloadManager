@@ -1703,11 +1703,7 @@ fn hls_manifest_container(manifest: &nova_stream_core::HlsManifest) -> Option<St
         return Some("mp4".to_owned());
     }
     let segment = manifest.segments.first()?;
-    let path = segment
-        .uri
-        .split(['?', '#'])
-        .next()
-        .unwrap_or(&segment.uri);
+    let path = segment.uri.split(['?', '#']).next().unwrap_or(&segment.uri);
     let extension = Path::new(path)
         .extension()
         .and_then(|value| value.to_str())?
@@ -2335,10 +2331,7 @@ fn dash_track_container(
         .chain(adaptation.base_url.iter())
         .chain(plan.units.iter().map(|unit| &unit.url))
     {
-        let path = value
-        .split(['?', '#'])
-            .next()
-            .unwrap_or(value);
+        let path = value.split(['?', '#']).next().unwrap_or(value);
         let Some(extension) = Path::new(path)
             .extension()
             .and_then(|value| value.to_str())

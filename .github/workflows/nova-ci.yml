@@ -614,6 +614,14 @@ jobs:
             Write-Output "---- CTest LastTest.log ----"
             Get-Content $ctestLog -Tail 300
           }
+          $qtTestLog = Join-Path $env:RUNNER_TEMP "nova-native-parity.txt"
+          & "build/native/Release/nova-native-tests.exe" "-o" "$qtTestLog,txt" "-v2"
+          $qtTestExitCode = $LASTEXITCODE
+          Write-Output "QtTest native parity exit code: $qtTestExitCode"
+          if (Test-Path $qtTestLog) {
+            Write-Output "---- QtTest native parity output ----"
+            Get-Content $qtTestLog -Tail 500
+          }
           ctest --test-dir build/native -C Release --rerun-failed --verbose
           exit 0
 
