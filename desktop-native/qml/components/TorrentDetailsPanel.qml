@@ -415,37 +415,69 @@ Item {
                     clip: true
                     model: root.files
                     boundsBehavior: Flickable.StopAtBounds
+                    activeFocusOnTab: true
+                    keyNavigationEnabled: true
+                    keyNavigationWraps: false
+                    Accessible.role: Accessible.List
+                    Accessible.name: root.t("torrent.fileSelection")
+                    onActiveFocusChanged: {
+                        if (activeFocus && count > 0 && currentIndex < 0)
+                            currentIndex = 0
+                    }
                     ScrollBar.vertical: ScrollBar {}
 
-                    delegate: RowLayout {
+                    delegate: Rectangle {
                         required property int index
                         required property var modelData
                         width: fileList.width
                         height: 38
-                        spacing: 6
+                        color: "transparent"
+                        border.width: fileList.activeFocus && fileList.currentIndex === index ? 2 : 0
+                        border.color: Theme.focusRing
+                        Accessible.role: Accessible.ListItem
+                        Accessible.name: String(modelData.path || String(index + 1))
+                        Accessible.description: root.formatBytes(modelData.length) + " · "
+                            + root.t("torrent.priority") + ": "
+                            + root.t("torrent." + root.filePriority(index))
+                        Accessible.focusable: true
+                        Accessible.focused: fileList.activeFocus && fileList.currentIndex === index
+                        Accessible.selectable: true
+                        Accessible.selected: fileList.currentIndex === index
+                        Accessible.onPressAction: fileList.currentIndex = index
 
-                        ComboBox {
-                            Layout.preferredWidth: 92
-                            enabled: root.canChangeFiles && !root.applyingFiles
-                            model: [root.t("torrent.high"), root.t("torrent.normal"), root.t("torrent.skip")]
-                            currentIndex: Math.max(0, ["high", "normal", "skip"].indexOf(root.filePriority(index)))
-                            onActivated: selectedIndex => {
-                                root.setFilePriority(index, ["high", "normal", "skip"][selectedIndex])
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.leftMargin: 4
+                            anchors.rightMargin: 4
+                            spacing: 6
+
+                            ComboBox {
+                                Layout.preferredWidth: 92
+                                enabled: root.canChangeFiles && !root.applyingFiles
+                                model: [root.t("torrent.high"), root.t("torrent.normal"), root.t("torrent.skip")]
+                                currentIndex: Math.max(0, ["high", "normal", "skip"].indexOf(root.filePriority(index)))
+                                Accessible.name: root.t("torrent.priority") + ": "
+                                    + String(modelData.path || "")
+                                onActivated: selectedIndex => {
+                                    root.setFilePriority(index, ["high", "normal", "skip"][selectedIndex])
+                                }
                             }
-                        }
-                        Text {
-                            Layout.fillWidth: true
-                            text: String(modelData.path || "")
-                            color: root.filePriority(index) === "skip" ? Theme.textMuted : Theme.textPrimary
-                            font.pixelSize: Theme.fontTiny
-                            elide: Text.ElideMiddle
-                        }
-                        Text {
-                            Layout.preferredWidth: 68
-                            text: root.formatBytes(modelData.length)
-                            color: Theme.textMuted
-                            font.pixelSize: Theme.fontTiny
-                            horizontalAlignment: Text.AlignRight
+
+                            Text {
+                                Layout.fillWidth: true
+                                text: String(modelData.path || "")
+                                color: root.filePriority(index) === "skip" ? Theme.textMuted : Theme.textPrimary
+                                font.pixelSize: Theme.fontTiny
+                                elide: Text.ElideMiddle
+                            }
+
+                            Text {
+                                Layout.preferredWidth: 68
+                                text: root.formatBytes(modelData.length)
+                                color: Theme.textMuted
+                                font.pixelSize: Theme.fontTiny
+                                horizontalAlignment: Text.AlignRight
+                            }
                         }
                     }
                 }
