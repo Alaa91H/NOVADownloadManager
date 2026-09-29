@@ -620,7 +620,7 @@ jobs:
           Write-Output "QtTest native parity exit code: $qtTestExitCode"
           if (Test-Path $qtTestLog) {
             Write-Output "---- QtTest native parity output ----"
-            Get-Content $qtTestLog -Tail 500
+            Get-Content $qtTestLog
           }
           ctest --test-dir build/native -C Release --rerun-failed --verbose
           exit 0

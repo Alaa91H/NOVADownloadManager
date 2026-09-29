@@ -606,7 +606,7 @@ fn create_native_manifest_task(
     if task_body
         .file_type
         .as_deref()
-        .map_or(true, |kind| kind.trim().is_empty())
+        .is_none_or(|kind| kind.trim().is_empty())
     {
         task_body.file_type = Some(extension.clone());
     }
@@ -755,7 +755,7 @@ fn create_native_separate_track_task(
     if task_body
         .file_type
         .as_deref()
-        .map_or(true, |kind| kind.trim().is_empty())
+        .is_none_or(|kind| kind.trim().is_empty())
     {
         task_body.file_type = Some(resolved.output_container.clone());
     }
@@ -1738,7 +1738,7 @@ fn select_hls_variant(
         .variants
         .iter()
         .filter(|variant| {
-            max_height.map_or(true, |limit| {
+            max_height.is_none_or(|limit| {
                 variant
                     .resolution
                     .is_some_and(|(_, height)| height <= limit)
@@ -2281,7 +2281,7 @@ fn best_dash_track_indices(
                 }
                 if kind == DashTrackKind::Video
                     && max_height.is_some_and(|limit| {
-                        representation.height.map_or(true, |height| height > limit)
+                        representation.height.is_none_or(|height| height > limit)
                     })
                 {
                     continue;
@@ -2293,7 +2293,7 @@ fn best_dash_track_indices(
                     DashTrackKind::Video => (resolution, bandwidth),
                     DashTrackKind::Audio | DashTrackKind::Other => (bandwidth, resolution),
                 };
-                if best.as_ref().map_or(true, |(current, _)| score > *current) {
+                if best.as_ref().is_none_or(|(current, _)| score > *current) {
                     best = Some((
                         score,
                         (period_index, adaptation_index, representation_index),
@@ -5188,7 +5188,7 @@ fn media_transcoding_requested(
         || options.audio_channels.is_some();
     let format_changed = (mode == MediaSelectionMode::Audio && output_format_is_explicit)
         || (output_format_is_explicit
-            && source_extension.as_deref().map_or(true, |source| {
+            && source_extension.as_deref().is_none_or(|source| {
                 normalize_container_alias(source) != normalize_container_alias(&output_extension)
             }));
     Ok(explicit_encoder || codec_settings || audio_bitrate_requested || format_changed)

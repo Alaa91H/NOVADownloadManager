@@ -186,11 +186,7 @@ mod tests {
 
     fn assert_duration_eq(actual: Duration, expected: Duration, msg: &str) {
         let epsilon = Duration::from_millis(50);
-        let diff = if actual > expected {
-            actual - expected
-        } else {
-            expected - actual
-        };
+        let diff = actual.abs_diff(expected);
         assert!(
             diff <= epsilon,
             "{msg}: expected ~{expected:?}, got {actual:?}"

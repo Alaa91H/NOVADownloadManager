@@ -11,7 +11,7 @@ fn parse_official_nightly(raw: &str) -> Option<Version> {
         Some((commit, build_date)) => (commit, Some(build_date)),
         None => (commit_with_date, None),
     };
-    let valid_build_date = build_date.map_or(true, |date| {
+    let valid_build_date = build_date.is_none_or(|date| {
         date.len() == 8 && date.chars().all(|character| character.is_ascii_digit())
     });
     if build.is_empty()

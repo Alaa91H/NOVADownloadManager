@@ -528,7 +528,7 @@ pub fn recent(limit: usize, min_level: Option<LevelFilter>) -> Vec<LogEntry> {
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let filtered: Vec<LogEntry> = guard
         .iter()
-        .filter(|entry| min_level.map_or(true, |min| entry.meets_level(min)))
+        .filter(|entry| min_level.is_none_or(|min| entry.meets_level(min)))
         .cloned()
         .collect();
     let start = filtered.len().saturating_sub(limit);

@@ -204,7 +204,7 @@ pub(super) fn read_browser_integration_state(data_dir: &str) -> (bool, bool) {
         .get("general")
         .and_then(|g| g.get("integrateWithBrowsers"))
         .and_then(|b| b.as_object())
-        .map_or(true, |m| m.values().any(|v| v.as_bool() == Some(true)));
+        .is_none_or(|m| m.values().any(|v| v.as_bool() == Some(true)));
     let paired = cfg
         .get("extra")
         .and_then(|e| e.get("browserPairingToken"))
