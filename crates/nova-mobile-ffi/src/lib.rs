@@ -513,7 +513,13 @@ fn mobile_media_descriptor(descriptor: nova_media_core::MediaDescriptor) -> Mobi
 
 fn resolve_native_media_descriptor(
     request: MobileMediaResolveRequest,
-) -> Result<(nova_media_core::ExtractRequest, nova_media_core::MediaDescriptor), MediaResolveError> {
+) -> Result<
+    (
+        nova_media_core::ExtractRequest,
+        nova_media_core::MediaDescriptor,
+    ),
+    MediaResolveError,
+> {
     let mut extract = nova_media_core::ExtractRequest::new(request.url);
     if let Some(user_agent) = request
         .user_agent
@@ -637,7 +643,8 @@ pub fn download_mobile_media_stream(
         .iter()
         .find(|stream| stream.id == request.stream_id)
         .ok_or_else(|| MediaDownloadError::ResolveFailed {
-            message: "selected media stream is no longer available; analyze the page again".to_owned(),
+            message: "selected media stream is no longer available; analyze the page again"
+                .to_owned(),
         })?;
     let context = descriptor
         .request_context_for_stream(stream)
@@ -678,16 +685,12 @@ pub fn discard_mobile_media_staging(
     .map_err(map_mobile_transfer_error)
 }
 
-fn map_mobile_transfer_error(
-    error: nova_mobile_core::MobileTransferError,
-) -> MediaDownloadError {
+fn map_mobile_transfer_error(error: nova_mobile_core::MobileTransferError) -> MediaDownloadError {
     let message = error.to_string();
     match error {
         nova_mobile_core::MobileTransferError::InvalidRelativeDestination
         | nova_mobile_core::MobileTransferError::DestinationEscapedRoot => {
-            MediaDownloadError::InvalidRequest {
-                message,
-            }
+            MediaDownloadError::InvalidRequest { message }
         }
         nova_mobile_core::MobileTransferError::Paused => MediaDownloadError::Paused,
         nova_mobile_core::MobileTransferError::Cancelled => MediaDownloadError::Cancelled,
@@ -722,11 +725,10 @@ fn fetch_mobile_manifest_text(
         message: format!("native manifest request failed: {error}"),
     })?;
     check_mobile_media_control(session)?;
-    let body = String::from_utf8(response.body).map_err(|_| {
-        MediaDownloadError::DownloadFailed {
+    let body =
+        String::from_utf8(response.body).map_err(|_| MediaDownloadError::DownloadFailed {
             message: "native media manifest is not UTF-8".to_owned(),
-        }
-    })?;
+        })?;
     Ok((response.effective_url, body))
 }
 
@@ -738,11 +740,12 @@ where
     I: IntoIterator<Item = (u64, std::path::PathBuf)>,
 {
     let parts = parts.into_iter().collect::<Vec<_>>();
-    let assembled = nova_media_core::assemble_ordered_parts(&parts, destination).map_err(|error| {
-        MediaDownloadError::DownloadFailed {
-            message: error.to_string(),
-        }
-    })?;
+    let assembled =
+        nova_media_core::assemble_ordered_parts(&parts, destination).map_err(|error| {
+            MediaDownloadError::DownloadFailed {
+                message: error.to_string(),
+            }
+        })?;
     Ok(assembled.bytes)
 }
 
@@ -761,16 +764,12 @@ fn publish_mobile_media_output(
         });
     }
     if destination.exists() {
-        std::fs::remove_file(destination).map_err(|error| {
-            MediaDownloadError::DownloadFailed {
-                message: error.to_string(),
-            }
+        std::fs::remove_file(destination).map_err(|error| MediaDownloadError::DownloadFailed {
+            message: error.to_string(),
         })?;
     }
-    std::fs::rename(source, destination).map_err(|error| {
-        MediaDownloadError::DownloadFailed {
-            message: error.to_string(),
-        }
+    std::fs::rename(source, destination).map_err(|error| MediaDownloadError::DownloadFailed {
+        message: error.to_string(),
     })?;
     Ok(bytes)
 }
@@ -803,7 +802,12 @@ fn media_container_from_urls<'a>(
 }
 
 fn media_mux_output_extension(container: &str) -> Option<&'static str> {
-    match container.trim().trim_start_matches('.').to_ascii_lowercase().as_str() {
+    match container
+        .trim()
+        .trim_start_matches('.')
+        .to_ascii_lowercase()
+        .as_str()
+    {
         "mp4" | "m4v" | "mov" | "m4a" => Some("mp4"),
         "mkv" | "matroska" => Some("mkv"),
         "webm" => Some("webm"),
@@ -881,8 +885,9 @@ fn download_native_manifest_stream(
         std::path::Path::new(&request.relative_destination),
     )
     .map_err(map_mobile_transfer_error)?;
-    let staging_dir = nova_mobile_core::prepare_app_private_media_staging_dir(root, &request.task_id)
-        .map_err(map_mobile_transfer_error)?;
+    let staging_dir =
+        nova_mobile_core::prepare_app_private_media_staging_dir(root, &request.task_id)
+            .map_err(map_mobile_transfer_error)?;
     let session = nova_mobile_core::begin_mobile_transfer_session(&request.task_id)
         .map_err(map_mobile_transfer_error)?;
 
@@ -931,8 +936,7 @@ fn download_native_hls_stream(
     session: &nova_mobile_core::MobileTransferSession,
 ) -> Result<u64, MediaDownloadError> {
     use nova_stream_core::{
-        build_hls_media_plan, parse_hls, select_best_hls_variant, HlsPlaylistKind,
-        HlsRenditionKind,
+        build_hls_media_plan, parse_hls, select_best_hls_variant, HlsPlaylistKind, HlsRenditionKind,
     };
 
     let (mut manifest_url, manifest_body) =
@@ -950,11 +954,11 @@ fn download_native_hls_stream(
         if manifest.kind == HlsPlaylistKind::Media {
             break;
         }
-        let variant = select_best_hls_variant(&manifest)
-            .cloned()
-            .ok_or_else(|| MediaDownloadError::DownloadFailed {
+        let variant = select_best_hls_variant(&manifest).cloned().ok_or_else(|| {
+            MediaDownloadError::DownloadFailed {
                 message: "HLS master playlist contains no selectable variant".to_owned(),
-            })?;
+            }
+        })?;
         selected_codecs = Some(variant.codecs.clone());
         if let Some(group_id) = variant.audio_group.as_deref() {
             let rendition = manifest
@@ -969,23 +973,19 @@ fn download_native_hls_stream(
                 .ok_or_else(|| MediaDownloadError::DownloadFailed {
                     message: format!("HLS audio group '{group_id}' has no downloadable rendition"),
                 })?;
-            let audio_url = rendition.uri.clone().ok_or_else(|| {
-                MediaDownloadError::DownloadFailed {
-                    message: "HLS audio rendition is missing its playlist URL".to_owned(),
-                }
-            })?;
-            let audio_context = nova_media_core::scope_http_request_context(
-                &context,
-                &manifest_url,
-                &audio_url,
-            );
+            let audio_url =
+                rendition
+                    .uri
+                    .clone()
+                    .ok_or_else(|| MediaDownloadError::DownloadFailed {
+                        message: "HLS audio rendition is missing its playlist URL".to_owned(),
+                    })?;
+            let audio_context =
+                nova_media_core::scope_http_request_context(&context, &manifest_url, &audio_url);
             audio_playlist = Some((audio_url, audio_context));
         }
-        let next_context = nova_media_core::scope_http_request_context(
-            &context,
-            &manifest_url,
-            &variant.uri,
-        );
+        let next_context =
+            nova_media_core::scope_http_request_context(&context, &manifest_url, &variant.uri);
         let (next_url, next_body) =
             fetch_mobile_manifest_text(&variant.uri, &next_context, session)?;
         manifest_url = next_url;
@@ -1007,16 +1007,16 @@ fn download_native_hls_stream(
         });
     }
 
-    let video_plan = build_hls_media_plan(&manifest).map_err(|error| {
-        MediaDownloadError::DownloadFailed {
+    let video_plan =
+        build_hls_media_plan(&manifest).map_err(|error| MediaDownloadError::DownloadFailed {
             message: error.to_string(),
-        }
-    })?;
+        })?;
     let video_container = media_container_from_urls(
         video_plan.units.iter().map(|unit| unit.uri.as_str()),
-        video_plan.units.iter().any(|unit| {
-            unit.kind == nova_stream_core::HlsTransferUnitKind::Initialization
-        }),
+        video_plan
+            .units
+            .iter()
+            .any(|unit| unit.kind == nova_stream_core::HlsTransferUnitKind::Initialization),
         "ts",
     );
     let video_stage = staging_dir.join("hls-video");
@@ -1034,7 +1034,8 @@ fn download_native_hls_stream(
     .map_err(map_hls_stage_error)?;
     let video_path = staging_dir.join(format!("hls-video.{video_container}"));
     let video_bytes = assemble_mobile_media_parts(
-        video.files
+        video
+            .files
             .iter()
             .map(|file| (file.order, file.path.clone())),
         &video_path,
@@ -1063,9 +1064,10 @@ fn download_native_hls_stream(
     })?;
     let audio_container = media_container_from_urls(
         audio_plan.units.iter().map(|unit| unit.uri.as_str()),
-        audio_plan.units.iter().any(|unit| {
-            unit.kind == nova_stream_core::HlsTransferUnitKind::Initialization
-        }),
+        audio_plan
+            .units
+            .iter()
+            .any(|unit| unit.kind == nova_stream_core::HlsTransferUnitKind::Initialization),
         "mp4",
     );
     let audio_stage = staging_dir.join("hls-audio");
@@ -1083,7 +1085,8 @@ fn download_native_hls_stream(
     .map_err(map_hls_stage_error)?;
     let audio_path = staging_dir.join(format!("hls-audio.{audio_container}"));
     let audio_bytes = assemble_mobile_media_parts(
-        audio.files
+        audio
+            .files
             .iter()
             .map(|file| (file.order, file.path.clone())),
         &audio_path,
@@ -1153,12 +1156,10 @@ fn download_native_dash_stream(
     session: &nova_mobile_core::MobileTransferSession,
 ) -> Result<u64, MediaDownloadError> {
     use nova_stream_core::{
-        build_dash_representation_plan, parse_dash, select_best_dash_representation,
-        DashTrackKind,
+        build_dash_representation_plan, parse_dash, select_best_dash_representation, DashTrackKind,
     };
 
-    let (manifest_url, body) =
-        fetch_mobile_manifest_text(&stream.url, initial_context, session)?;
+    let (manifest_url, body) = fetch_mobile_manifest_text(&stream.url, initial_context, session)?;
     let manifest = parse_dash(&body).map_err(|error| MediaDownloadError::DownloadFailed {
         message: format!("native DASH manifest parse failed: {error}"),
     })?;
@@ -1169,14 +1170,16 @@ fn download_native_dash_stream(
     }
     if manifest.periods.len() != 1 {
         return Err(MediaDownloadError::DownloadFailed {
-            message: "this Android task runner currently accepts one static DASH period per task".to_owned(),
+            message: "this Android task runner currently accepts one static DASH period per task"
+                .to_owned(),
         });
     }
-    let period = manifest.periods.first().ok_or_else(|| {
-        MediaDownloadError::DownloadFailed {
+    let period = manifest
+        .periods
+        .first()
+        .ok_or_else(|| MediaDownloadError::DownloadFailed {
             message: "DASH manifest contains no periods".to_owned(),
-        }
-    })?;
+        })?;
     let mut video_selection = None;
     let mut audio_selection = None;
     for (adaptation_index, adaptation) in period.adaptations.iter().enumerate() {
@@ -1215,21 +1218,29 @@ fn download_native_dash_stream(
         );
         match selected.0.track_kind {
             DashTrackKind::Video => {
-                if video_selection
-                    .as_ref()
-                    .is_none_or(|existing: &(nova_stream_core::DashRepresentationPlan, Option<String>, String)| {
+                if video_selection.as_ref().is_none_or(
+                    |existing: &(
+                        nova_stream_core::DashRepresentationPlan,
+                        Option<String>,
+                        String,
+                    )| {
                         selected.0.bandwidth.unwrap_or(0) > existing.0.bandwidth.unwrap_or(0)
-                    })
+                    },
+                )
                 {
                     video_selection = Some(selected);
                 }
             }
             DashTrackKind::Audio => {
-                if audio_selection
-                    .as_ref()
-                    .is_none_or(|existing: &(nova_stream_core::DashRepresentationPlan, Option<String>, String)| {
+                if audio_selection.as_ref().is_none_or(
+                    |existing: &(
+                        nova_stream_core::DashRepresentationPlan,
+                        Option<String>,
+                        String,
+                    )| {
                         selected.0.bandwidth.unwrap_or(0) > existing.0.bandwidth.unwrap_or(0)
-                    })
+                    },
+                )
                 {
                     audio_selection = Some(selected);
                 }
@@ -1303,21 +1314,22 @@ fn download_native_dash_stream(
     }
 
     match (assembled_video, assembled_audio) {
-        (Some((video_path, video_container, video_codec)), Some((audio_path, audio_container, audio_codec))) => {
-            mux_mobile_media_tracks(
-                &request.task_id,
-                &video_path,
-                &audio_path,
-                &video_container,
-                &audio_container,
-                video_codec,
-                audio_codec,
-                &request.output_container,
-                staging_dir,
-                destination,
-                session,
-            )
-        }
+        (
+            Some((video_path, video_container, video_codec)),
+            Some((audio_path, audio_container, audio_codec)),
+        ) => mux_mobile_media_tracks(
+            &request.task_id,
+            &video_path,
+            &audio_path,
+            &video_container,
+            &audio_container,
+            video_codec,
+            audio_codec,
+            &request.output_container,
+            staging_dir,
+            destination,
+            session,
+        ),
         (Some((path, _, _)), None) | (None, Some((path, _, _))) => {
             check_mobile_media_control(session)?;
             publish_mobile_media_output(&path, destination)
@@ -1339,7 +1351,10 @@ fn mobile_codec_track_capabilities(
         encoders_by_container: capabilities
             .encoders_by_container
             .into_iter()
-            .map(|(extension, encoders)| MobileMediaCodecContainer { extension, encoders })
+            .map(|(extension, encoders)| MobileMediaCodecContainer {
+                extension,
+                encoders,
+            })
             .collect(),
     }
 }
@@ -1407,9 +1422,7 @@ fn run_mobile_media_transcode(
         match error {
             nova_mobile_core::MobileMediaProcessingError::InvalidRelativePath
             | nova_mobile_core::MobileMediaProcessingError::PathEscapedRoot => {
-            MediaProcessingBridgeError::InvalidRequest {
-                    message,
-            }
+                MediaProcessingBridgeError::InvalidRequest { message }
             }
             nova_mobile_core::MobileMediaProcessingError::Paused => {
                 MediaProcessingBridgeError::Paused
@@ -1425,9 +1438,7 @@ fn run_mobile_media_transcode(
 }
 
 #[uniffi::export]
-pub fn mobile_media_processing_progress(
-    task_id: String,
-) -> Option<MobileMediaProcessingProgress> {
+pub fn mobile_media_processing_progress(task_id: String) -> Option<MobileMediaProcessingProgress> {
     nova_mobile_core::media_processing_progress(&task_id).map(|progress| {
         MobileMediaProcessingProgress {
             phase: progress.phase,
@@ -2109,14 +2120,17 @@ pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativeD
             return -1;
         }
     };
-    let relative_destination =
-        match jni_string(&mut env, &relative_destination, "media relative destination") {
-            Ok(value) => value,
-            Err(message) => {
-                throw_android_transfer_error(&mut env, message);
-                return -1;
-            }
-        };
+    let relative_destination = match jni_string(
+        &mut env,
+        &relative_destination,
+        "media relative destination",
+    ) {
+        Ok(value) => value,
+        Err(message) => {
+            throw_android_transfer_error(&mut env, message);
+            return -1;
+        }
+    };
 
     match download_mobile_media_stream(MobileMediaDownloadRequest {
         task_id,
@@ -2315,8 +2329,9 @@ mod tests {
 
     #[test]
     fn mobile_codec_registry_json_has_runtime_track_and_container_matrices() {
-        let value: serde_json::Value = serde_json::from_str(&mobile_media_codec_capabilities_json())
-            .expect("codec capability JSON");
+        let value: serde_json::Value =
+            serde_json::from_str(&mobile_media_codec_capabilities_json())
+                .expect("codec capability JSON");
         assert_eq!(
             value["capabilityRegistryVersion"],
             nova_core_model::CAPABILITY_REGISTRY_CONTRACT_VERSION
