@@ -29,7 +29,7 @@ QtObject {
     readonly property color warning: highContrast ? (darkMode ? "#ffdf66" : "#754c00") : (darkMode ? "#d29922" : "#9a6700")
     readonly property color danger: highContrast ? (darkMode ? "#ff6b6b" : "#b00020") : (darkMode ? "#f85149" : "#c62828")
     readonly property color info: highContrast ? (darkMode ? "#80c7ff" : "#004c99") : (darkMode ? "#58a6ff" : "#0061a4")
-    readonly property color focusRing: highContrast ? (darkMode ? "#66a3ff" : "#0047b3") : accentBase
+    readonly property color focusRing: accent
 
     readonly property int radiusSmall: Math.max(3, Math.round(radiusBase * 0.8))
     readonly property int radiusMedium: Math.max(5, Math.round(radiusBase * 1.2))

@@ -940,7 +940,7 @@ pub(crate) struct UpdateDownloadBody {
     url: Option<String>,
 }
 
-pub async fn handle_update_task(
+pub(crate) async fn handle_update_task(
     State(state): State<SharedState>,
     Path(id): Path<String>,
     headers: HeaderMap,

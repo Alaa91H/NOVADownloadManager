@@ -6217,7 +6217,7 @@ fn parse_quality_height(value: &str) -> Option<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nova_media_core::nova_media_processing_core::MediaDemuxer;
+    use nova_media_core::processing::MediaDemuxer;
     use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::time::{SystemTime, UNIX_EPOCH};
