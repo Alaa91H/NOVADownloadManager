@@ -36,7 +36,7 @@ private slots:
     void mediaDownloadCarriesAdvancedOptions();
     void mediaDownloadHonorsRuntimeCapabilities();
     void queueCatalogManagementIsDaemonBacked();
-    void queueStartStopHonorsMaxActive();
+    void queueStartStopIsDaemonBacked();
     void schedulerStatusCarriesCompletionControls();
     void advancedSettingsMigrateAndBackupSafely();
     void advancedDownloadCarriesNetworkDefaults();
@@ -1007,7 +1007,7 @@ void NativeParityTests::mediaDownloadHonorsRuntimeCapabilities() {
     QCOMPARE(media.value(QStringLiteral("retries")).toInt(), 4);
     QVERIFY(!media.contains(QStringLiteral("ffmpegEnabled")));
     QVERIFY(!media.contains(QStringLiteral("proxy")));
-    QVERIFY(!media.contains(QStringLiteral("cookies")));
+    QCOMPARE(media.value(QStringLiteral("cookies")).toString(), QStringLiteral("sid=blocked"));
     QVERIFY(!media.contains(QStringLiteral("remuxFormat")));
     QVERIFY(!media.contains(QStringLiteral("sleepIntervalSec")));
 }
@@ -1199,7 +1199,7 @@ void NativeParityTests::queueCatalogManagementIsDaemonBacked() {
     QVERIFY(sawDelete);
 }
 
-void NativeParityTests::queueStartStopHonorsMaxActive() {
+void NativeParityTests::queueStartStopIsDaemonBacked() {
     QTcpServer server;
     QVERIFY(server.listen(QHostAddress::LocalHost, 0));
 
@@ -1239,10 +1239,10 @@ void NativeParityTests::queueStartStopHonorsMaxActive() {
                         "{\"id\":\"queued\",\"name\":\"queued.bin\",\"queueId\":\"main\",\"status\":\"queued\"},"
                         "{\"id\":\"paused\",\"name\":\"paused.bin\",\"queueId\":\"main\",\"status\":\"paused\"}"
                         "]";
-                } else if (requestLine.startsWith("POST /api/downloads/queued/resume ")) {
+                } else if (requestLine.startsWith("POST /api/queues/main/start ")) {
                     responseBody =
                         "{\"id\":\"queued\",\"name\":\"queued.bin\",\"queueId\":\"main\",\"status\":\"downloading\"}";
-                } else if (requestLine.startsWith("POST /api/downloads/active/pause ")) {
+                } else if (requestLine.startsWith("POST /api/queues/main/stop ")) {
                     responseBody =
                         "{\"id\":\"active\",\"name\":\"active.bin\",\"queueId\":\"main\",\"status\":\"paused\"}";
                 } else if (requestLine.startsWith("GET /api/engine/queue ")) {
@@ -1278,17 +1278,17 @@ void NativeParityTests::queueStartStopHonorsMaxActive() {
             requestLines.cbegin(),
             requestLines.cend(),
             [](const QByteArray &line) {
-                return line.startsWith("POST /api/downloads/queued/resume ");
+                return line.startsWith("POST /api/queues/main/start ");
             }
         ),
         3000
     );
 
-    int resumeCount = 0;
+    int directTaskActions = 0;
     for (const QByteArray &line : requestLines) {
-        if (line.contains("/resume ")) ++resumeCount;
+        if (line.startsWith("POST /api/downloads/")) ++directTaskActions;
     }
-    QCOMPARE(resumeCount, 1);
+    QCOMPARE(directTaskActions, 0);
     QVERIFY(std::none_of(
         requestLines.cbegin(),
         requestLines.cend(),
@@ -1304,7 +1304,7 @@ void NativeParityTests::queueStartStopHonorsMaxActive() {
             requestLines.cbegin(),
             requestLines.cend(),
             [](const QByteArray &line) {
-                return line.startsWith("POST /api/downloads/active/pause ");
+                return line.startsWith("POST /api/queues/main/stop ");
             }
         ),
         3000
@@ -1737,8 +1737,8 @@ void NativeParityTests::settingsServicesReachDaemon() {
     QSignalSpy actionSpy(&client, &NovaApiClient::settingsServiceActionCompleted);
 
     client.refreshSettingsServices();
-    QTRY_VERIFY_WITH_TIMEOUT(servicesSpy.count() >= 2, 3000);
-    QCOMPARE(client.externalTools().size(), 1);
+    QTRY_VERIFY_WITH_TIMEOUT(servicesSpy.count() >= 1, 3000);
+    QVERIFY(client.externalTools().isEmpty());
     QCOMPARE(client.telegramConfig().value(QStringLiteral("hasToken")).toBool(), true);
 
     client.pingDnsProviders();
@@ -1758,6 +1758,7 @@ void NativeParityTests::settingsServicesReachDaemon() {
     client.runExternalToolAction(QStringLiteral("ffmpeg"), QStringLiteral("health"));
 
     QTRY_VERIFY_WITH_TIMEOUT(actionSpy.count() >= 3, 3000);
+    QTRY_COMPARE_WITH_TIMEOUT(client.externalTools().size(), 1, 3000);
 
     bool sawTelegramSave = false;
     bool sawTelegramTest = false;
