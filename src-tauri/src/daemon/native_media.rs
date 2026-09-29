@@ -2387,6 +2387,7 @@ struct DashRepresentationMetadata {
 }
 
 fn dash_representation_metadata(
+    manifest_url: &str,
     manifest: &DashManifest,
     indices: DashRepresentationIndices,
 ) -> Result<DashRepresentationMetadata, NativeMediaTaskError> {
@@ -2398,12 +2399,14 @@ fn dash_representation_metadata(
     let representation = adaptation.representations.get(indices.2).ok_or_else(|| {
         NativeMediaTaskError::Resolution("DASH representation disappeared".to_owned())
     })?;
-    let plan = nova_stream_core::DashRepresentationPlan {
-        representation_id: representation.id.clone(),
-        track_kind: dash_representation_kind(adaptation, representation),
-        bandwidth: representation.bandwidth,
-        units: Vec::new(),
-    };
+    let plan = build_dash_representation_plan(
+        manifest,
+        manifest_url,
+        indices.0,
+        indices.1,
+        indices.2,
+    )
+    .map_err(|error| NativeMediaTaskError::Resolution(error.to_string()))?;
     Ok(DashRepresentationMetadata {
         kind: plan.track_kind,
         container: dash_track_container(adaptation, representation, &plan),
@@ -2730,7 +2733,7 @@ where
     };
     let selected_metadata = selected_indices
         .iter()
-        .map(|indices| dash_representation_metadata(&manifest, *indices))
+        .map(|indices| dash_representation_metadata(manifest_url, &manifest, *indices))
         .collect::<Result<Vec<_>, _>>()?;
     ensure_dash_period_metadata_is_stable(&selected_metadata, "selected")?;
 
@@ -2740,7 +2743,7 @@ where
         let indices = audio_indices.iter().flatten().copied().collect::<Vec<_>>();
         let metadata = indices
             .iter()
-            .map(|indices| dash_representation_metadata(&manifest, *indices))
+            .map(|indices| dash_representation_metadata(manifest_url, &manifest, *indices))
             .collect::<Result<Vec<_>, _>>()?;
         ensure_dash_period_metadata_is_stable(&metadata, "audio")?;
         metadata
