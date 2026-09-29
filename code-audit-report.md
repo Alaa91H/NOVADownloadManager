@@ -612,3 +612,8 @@ All uses of `Ordering::Relaxed` in counters and stats are acceptable, however:
 ---
 
 *End of report — analyzed by the Microscopic Engineering Review team.*
+# Historical audit snapshot
+
+> This report describes the former Tauri desktop architecture and does not
+> describe the current Qt/QML application or headless Rust runtime.
+

@@ -29,8 +29,8 @@ The extension may detect more candidate types than the desktop engine can downlo
 The sync now includes production Native Messaging integration rather than a manifest-only placeholder:
 
 - Host identity: `com.nova.downloadmanager`.
-- Installed executable: `nova.exe` detects browser native-host launches and runs a stdio proxy.
+- Installed executable: the bundled `nova-native-host` Rust binary handles browser Native Messaging over stdio.
 - Supported native methods: `engine.status`, `task.list`, `task.pause`, `task.resume`, `task.cancel`.
-- Native host manifest generation is handled by the desktop build script and patched by NSIS at install time.
+- The Qt desktop writes and repairs browser-specific Native Messaging manifests and registrations through `DesktopIntegration`; the retired NSIS installer does not participate.
 - Loopback HTTP/SSE remains the primary full protocol path; Native Messaging is used for wake/status/task commands and as an availability signal.
 - Chromium native host allow-listing is build-time controlled through `NOVA_CHROMIUM_EXTENSION_IDS`; Firefox uses the stable gecko extension ID.

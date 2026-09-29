@@ -21,25 +21,6 @@ static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(1);
 static CODEC_CAPABILITIES: OnceLock<NativeMediaCodecCapabilities> = OnceLock::new();
 const MAX_DIMENSION: u32 = 16_384;
 const CANCEL_SENTINEL: &str = "NOVA_TRANSCODE_CANCELLED";
-const AUDIO_DECODERS: &[&str] = &["aac", "mp3", "opus", "vorbis", "flac", "pcm"];
-const AUDIO_ENCODERS: &[&str] = &["aac", "mp3", "opus", "vorbis", "flac", "pcm_s16le"];
-const VIDEO_DECODERS: &[&str] = &[
-    "h264", "hevc", "av1", "vp8", "vp9", "av2", "mjpeg", "rawvideo",
-];
-const VIDEO_ENCODERS: &[&str] = &["h264", "vp9", "mjpeg", "rawvideo"];
-const INPUT_EXTENSIONS: &[&str] = &[
-    "mp4", "m4a", "m4v", "mov", "3gp", "mkv", "mka", "webm", "avi", "flv", "ts",
-    "m2ts", "wav", "wave", "ogg", "oga", "opus", "flac", "mp3", "ivf", "y4m",
-];
-const AUDIO_OUTPUT_EXTENSIONS: &[&str] = &["m4a", "mka", "mp3", "flac", "ogg", "opus", "wav"];
-const VIDEO_OUTPUT_EXTENSIONS: &[&str] = &[
-    "mp4", "mov", "mkv", "webm", "avi", "flv", "ts", "ivf", "y4m",
-];
-const SUBTITLE_OUTPUT_TARGETS: &[(&str, &str)] = &[
-    ("mkv", "subrip"),
-    ("mka", "subrip"),
-    ("webm", "webvtt"),
-];
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -56,6 +37,8 @@ pub struct NativeMediaCodecTrackCapabilities {
 pub struct NativeMediaCodecCapabilities {
     pub audio: NativeMediaCodecTrackCapabilities,
     pub video: NativeMediaCodecTrackCapabilities,
+    pub demuxers: Vec<String>,
+    pub muxers: Vec<String>,
     pub subtitle_containers: Vec<String>,
 }
 
@@ -65,99 +48,116 @@ pub fn native_media_codec_capabilities() -> NativeMediaCodecCapabilities {
     CODEC_CAPABILITIES
         .get_or_init(|| {
             let engine = Engine::new();
-            let audio = track_capabilities(
-                &engine,
-                AUDIO_DECODERS,
-                AUDIO_ENCODERS,
-                AUDIO_OUTPUT_EXTENSIONS,
-                true,
-            );
-            let video = track_capabilities(
-                &engine,
-                VIDEO_DECODERS,
-                VIDEO_ENCODERS,
-                VIDEO_OUTPUT_EXTENSIONS,
-                false,
-            );
-            let subtitle_containers = SUBTITLE_OUTPUT_TARGETS
+            let audio = track_capabilities(&engine, MediaType::Audio);
+            let video = track_capabilities(&engine, MediaType::Video);
+            let demuxers = engine
+                .formats
                 .iter()
-                .filter_map(|(extension, codec_name)| {
-                    let codec = CodecId::from_name(codec_name)?;
-                    let format = engine
-                        .formats
-                        .by_extension(extension)
-                        .filter(|format| format.can_mux())?;
-                    format_accepts_subtitle_codec(&engine, format.name, codec)
-                        .then(|| (*extension).to_owned())
+                .filter(|format| format.can_demux())
+                .map(|format| format.name.to_owned())
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
+                .collect();
+            let muxers = engine
+                .formats
+                .iter()
+                .filter(|format| format.can_mux())
+                .map(|format| format.name.to_owned())
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
+                .collect();
+            let subtitle_containers = engine
+                .formats
+                .iter()
+                .filter(|format| {
+                    format.can_mux()
+                        && (format.mux_caps.accepts_media(MediaType::Video)
+                            || format.mux_caps.accepts_media(MediaType::Audio))
                 })
+                .filter(|format| {
+                    engine.codecs.iter().any(|codec| {
+                        codec.media_type == MediaType::Subtitle
+                            && codec.can_encode()
+                            && format_accepts_subtitle_codec(&engine, format.name, codec.id)
+                    })
+                })
+                .flat_map(|format| {
+                    format
+                        .extensions
+                        .iter()
+                        .map(|extension| (*extension).to_owned())
+                })
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
                 .collect();
             NativeMediaCodecCapabilities {
                 audio,
                 video,
+                demuxers,
+                muxers,
                 subtitle_containers,
             }
         })
         .clone()
 }
 
-fn track_capabilities(
-    engine: &Engine,
-    decoder_codecs: &[&str],
-    encoder_codecs: &[&str],
-    output_extensions: &[&str],
-    audio: bool,
-) -> NativeMediaCodecTrackCapabilities {
+fn track_capabilities(engine: &Engine, media_type: MediaType) -> NativeMediaCodecTrackCapabilities {
+    let encoder_codecs = engine
+        .codecs
+        .iter()
+        .filter(|codec| codec.media_type == media_type && codec.can_encode())
+        .collect::<Vec<_>>();
     let mut encoders_by_container = BTreeMap::new();
-    for extension in output_extensions {
-        let Some(format) = engine
-            .formats
-            .by_extension(extension)
-            .filter(|format| format.can_mux())
-        else {
-            continue;
-        };
-        let accepted = encoder_codecs
+    let mut output_formats = engine
+        .formats
+        .iter()
+        .filter(|format| format.can_mux())
+        .collect::<Vec<_>>();
+    output_formats.sort_by_key(|format| format.name);
+    for format in output_formats {
+        let mut accepted = encoder_codecs
             .iter()
-            .filter(|name| {
-                CodecId::from_name(name).is_some_and(|codec| {
-                    engine.codecs.find_encoder(codec).is_ok()
-                        && format_accepts_codec(engine, format.name, codec, audio)
-                })
+            .filter(|codec| {
+                format_accepts_codec(
+                    engine,
+                    format.name,
+                    codec.id,
+                    media_type == MediaType::Audio,
+                )
             })
-            .map(|name| (*name).to_owned())
+            .map(|codec| codec.name.to_owned())
             .collect::<Vec<_>>();
+        accepted.sort();
+        accepted.dedup();
         if !accepted.is_empty() {
-            encoders_by_container.insert((*extension).to_owned(), accepted);
+            for extension in format.extensions {
+                encoders_by_container.insert((*extension).to_owned(), accepted.clone());
+            }
         }
     }
-    let encoders = encoder_codecs
+    let encoders = engine
+        .codecs
         .iter()
-        .filter(|codec| {
-            encoders_by_container
-                .values()
-                .any(|supported| supported.iter().any(|value| value == **codec))
-        })
-        .map(|name| (*name).to_owned())
+        .filter(|codec| codec.media_type == media_type && codec.can_encode())
+        .map(|codec| codec.name.to_owned())
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
         .collect();
-    let decoders = decoder_codecs
+    let decoders = engine
+        .codecs
         .iter()
-        .filter(|name| {
-            CodecId::from_name(name)
-                .is_some_and(|codec| engine.codecs.find_decoder(codec).is_ok())
-        })
-        .map(|name| (*name).to_owned())
+        .filter(|codec| codec.media_type == media_type && codec.can_decode())
+        .map(|codec| codec.name.to_owned())
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
         .collect();
-    let input_containers = INPUT_EXTENSIONS
+    let input_containers = engine
+        .formats
         .iter()
-        .filter(|extension| {
-            engine
-                .formats
-                .by_extension(extension)
-                .is_some_and(|format| format.can_demux())
-                && (!audio || !matches!(**extension, "ivf" | "y4m"))
-                && (audio || !matches!(**extension, "wav" | "oga" | "flac" | "mp3"))
-        })
-        .map(|extension| (*extension).to_owned())
+        .filter(|format| format.can_demux() && format.mux_caps.accepts_media(media_type))
+        .flat_map(|format| format.extensions.iter().map(|extension| (*extension).to_owned()))
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
         .collect();
     let output_containers = encoders_by_container.keys().cloned().collect();
 
@@ -858,36 +858,31 @@ fn subtitle_output_target(
     engine: &Engine,
 ) -> Result<(String, CodecId), MediaProcessingError> {
     let extension = extension.trim_start_matches('.').to_ascii_lowercase();
-    let (registered_extension, codec_name) = SUBTITLE_OUTPUT_TARGETS
-        .iter()
-        .find(|(candidate, _)| candidate.eq_ignore_ascii_case(&extension))
-        .copied()
+    let format = engine
+        .formats
+        .by_extension(&extension)
+        .filter(|format| {
+            format.can_mux()
+                && (format.mux_caps.accepts_media(MediaType::Video)
+                    || format.mux_caps.accepts_media(MediaType::Audio))
+        })
         .ok_or_else(|| {
             MediaProcessingError::UnsupportedContainer(format!(
                 "the bundled text-subtitle muxer does not support '.{extension}'"
             ))
         })?;
-    let codec = CodecId::from_name(codec_name).ok_or_else(|| {
-        MediaProcessingError::UnsupportedCodec(format!(
-            "subtitle codec '{codec_name}' is not registered in this local build"
-        ))
-    })?;
-    let format = engine
-        .formats
-        .by_extension(registered_extension)
-        .filter(|format| format.can_mux())
+    let codec = engine
+        .codecs
+        .iter()
+        .filter(|codec| codec.media_type == MediaType::Subtitle && codec.can_encode())
+        .filter(|codec| format_accepts_subtitle_codec(engine, format.name, codec.id))
+        .min_by_key(|codec| codec.name)
         .ok_or_else(|| {
-            MediaProcessingError::UnsupportedContainer(format!(
-                "native subtitle engine cannot write '.{extension}'"
+            MediaProcessingError::UnsupportedCodec(format!(
+                "subtitle container '.{extension}' has no registered native subtitle encoder"
             ))
         })?;
-    if !format_accepts_subtitle_codec(engine, format.name, codec) {
-        return Err(MediaProcessingError::UnsupportedCodec(format!(
-            "subtitle codec '{}' is unavailable for '.{extension}' in this local codec build",
-            codec.name()
-        )));
-    }
-    Ok((format.name.to_owned(), codec))
+    Ok((format.name.to_owned(), codec.id))
 }
 
 fn ensure_nonempty_local_file(path: &Path, label: &str) -> Result<u64, MediaProcessingError> {
@@ -1325,15 +1320,15 @@ mod tests {
     }
 
     #[test]
-    fn subtitle_target_matrix_contains_only_container_codec_pairs_checked_at_runtime() {
-        assert_eq!(
-            SUBTITLE_OUTPUT_TARGETS,
-            &[
-                ("mkv", "subrip"),
-                ("mka", "subrip"),
-                ("webm", "webvtt"),
-            ]
-        );
+    fn subtitle_targets_are_derived_from_registered_muxers_and_encoders() {
+        let engine = Engine::new();
+        let capabilities = native_media_codec_capabilities();
+        assert!(!capabilities.subtitle_containers.is_empty());
+        for extension in &capabilities.subtitle_containers {
+            let (format, codec) = subtitle_output_target(extension, &engine).unwrap();
+            assert!(engine.formats.by_name(&format).is_some());
+            assert!(engine.codecs.find_encoder(codec).is_ok());
+        }
         assert_eq!(input_format_name("flv").as_deref(), Some("flv"));
         assert_eq!(input_format_name("opus").as_deref(), Some("ogg"));
         assert_eq!(subtitle_input_format(".srt"), Some("srt"));
@@ -1360,6 +1355,48 @@ mod tests {
         assert!(capabilities.video.output_containers.iter().all(|container| {
             capabilities.video.encoders_by_container.contains_key(container)
         }));
+    }
+
+    #[test]
+    fn codec_registry_reports_every_compiled_codec_and_container_direction() {
+        use std::collections::BTreeSet;
+
+        let engine = Engine::new();
+        let capabilities = native_media_codec_capabilities();
+        let codec_names = |media_type, encoder: bool| {
+            engine
+                .codecs
+                .iter()
+                .filter(|codec| {
+                    codec.media_type == media_type
+                        && if encoder {
+                            codec.can_encode()
+                        } else {
+                            codec.can_decode()
+                        }
+                })
+                .map(|codec| codec.name.to_owned())
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect::<Vec<_>>()
+        };
+        let format_names = |muxer: bool| {
+            engine
+                .formats
+                .iter()
+                .filter(|format| if muxer { format.can_mux() } else { format.can_demux() })
+                .map(|format| format.name.to_owned())
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(capabilities.audio.decoders, codec_names(MediaType::Audio, false));
+        assert_eq!(capabilities.audio.encoders, codec_names(MediaType::Audio, true));
+        assert_eq!(capabilities.video.decoders, codec_names(MediaType::Video, false));
+        assert_eq!(capabilities.video.encoders, codec_names(MediaType::Video, true));
+        assert_eq!(capabilities.demuxers, format_names(false));
+        assert_eq!(capabilities.muxers, format_names(true));
     }
 
     #[test]

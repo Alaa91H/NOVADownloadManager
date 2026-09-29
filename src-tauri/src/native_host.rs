@@ -202,24 +202,9 @@ fn read_port_file() -> Option<u16> {
     None
 }
 
-#[cfg(test)]
-fn parse_pairing_secret(content: &str, expected_port: u16) -> Option<String> {
-    let value = serde_json::from_str::<Value>(content).ok()?;
-    if value.get("port").and_then(Value::as_u64) != Some(u64::from(expected_port)) {
-        return None;
-    }
-
-    value
-        .get("secret")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|secret| secret.len() >= 24)
-        .map(str::to_owned)
-}
-
 /// Compute platform-specific paths where the daemon may have written its port.
 /// These MUST match the directories the daemon actually uses:
-/// - Tauri mode:      `app_data_dir` for identifier `com.nova.downloadmanager`
+/// - Native desktop:  `app_data_dir` for the historical identifier `com.nova.downloadmanager`
 /// - Integration mode: `<APPDATA|HOME>/nova-download-manager`
 ///
 /// Legacy `NOVA` paths are kept as a fallback for older installs.
@@ -232,7 +217,7 @@ fn port_file_paths() -> Vec<std::path::PathBuf> {
         paths.push(std::path::PathBuf::from(override_dir).join("nova-daemon.port"));
     }
 
-    // Windows — Tauri app_data_dir: %APPDATA%\com.nova.downloadmanager
+    // Windows — native desktop data directory: %APPDATA%\com.nova.downloadmanager
     if let Ok(app_data) = std::env::var("APPDATA") {
         let base = std::path::PathBuf::from(app_data);
         paths.push(
@@ -252,7 +237,7 @@ fn port_file_paths() -> Vec<std::path::PathBuf> {
         );
     }
 
-    // Linux — Tauri app_data_dir: $XDG_DATA_HOME/com.nova.downloadmanager
+    // Linux — native desktop data directory: $XDG_DATA_HOME/com.nova.downloadmanager
     // (default ~/.local/share), integration mode: ~/nova-download-manager
     if let Ok(home) = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
         let home = std::path::PathBuf::from(home);
@@ -272,7 +257,7 @@ fn port_file_paths() -> Vec<std::path::PathBuf> {
         paths.push(home.join("nova-download-manager").join("nova-daemon.port"));
         // Legacy: ~/.config/NOVA/nova-daemon.port
         paths.push(home.join(".config").join("NOVA").join("nova-daemon.port"));
-        // macOS — Tauri app_data_dir
+        // macOS — native desktop data directory
         paths.push(
             home.join("Library")
                 .join("Application Support")
@@ -327,25 +312,7 @@ fn obtain_api_token(client: &reqwest::blocking::Client, base_url: &str) -> Optio
 
 #[cfg(test)]
 mod desktop_launch_tests {
-    use super::{parse_pairing_secret, resolve_desktop_executable};
-
-    #[test]
-    fn pairing_secret_parser_requires_matching_port_and_strong_secret() {
-        let content = serde_json::json!({
-            "port": 3199,
-            "pid": 1234,
-            "secret": "0123456789abcdef0123456789abcdef",
-            "protocolVersion": 1
-        })
-        .to_string();
-
-        assert_eq!(
-            parse_pairing_secret(&content, 3199).as_deref(),
-            Some("0123456789abcdef0123456789abcdef")
-        );
-        assert!(parse_pairing_secret(&content, 3200).is_none());
-        assert!(parse_pairing_secret(r#"{"port":3199,"secret":"short"}"#, 3199).is_none());
-    }
+    use super::resolve_desktop_executable;
 
     #[test]
     fn explicit_desktop_executable_must_be_absolute_and_exist() {

@@ -604,7 +604,12 @@ jobs:
         if: failure() && runner.os == 'Windows'
         shell: pwsh
         run: |
-          & "build/native/Release/nova-native-tests.exe" -o -,txt
+          $ctestLog = "build/native/Testing/Temporary/LastTest.log"
+          if (Test-Path $ctestLog) {
+            Write-Output "---- CTest LastTest.log ----"
+            Get-Content $ctestLog -Tail 300
+          }
+          ctest --test-dir build/native -C Release --rerun-failed --verbose
           exit 0
 
       - name: Install preview bundle

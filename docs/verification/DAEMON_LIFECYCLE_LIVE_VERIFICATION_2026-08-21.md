@@ -37,3 +37,9 @@ The tests intentionally avoided printing any bearer token. Pairing success was v
 ## Boundaries
 
 This verification proves the tested Linux integration-mode lifecycle and real loopback/native-messaging contract. It does not replace a visual desktop-GUI restart acceptance test on every operating system, nor does it prove behavior under host-level forced termination, disk-full persistence failures, or third-party endpoint interference. The production release remains guarded by the normal multi-platform CI and checksum verification process.
+# Historical verification report
+
+This report records behavior from the former Tauri desktop integration. The
+current desktop is Qt/QML and runs the Rust daemon as a separate native
+backend; the Tauri-specific paths described below are not current behavior.
+

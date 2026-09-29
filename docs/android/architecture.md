@@ -8,7 +8,7 @@
 
 ## Executive decision
 
-The desktop Rust package `src-tauri` remains **not suitable for direct Android embedding**. It still combines portable download logic with the Tauri shell, an Axum loopback daemon, desktop resource discovery, process control, native-host integration, and desktop credential-store assumptions. Its crate types alone do not make it an Android boundary.
+The desktop Rust package `src-tauri` remains **not suitable for direct Android embedding**. The former Tauri shell has been removed, but this package still combines portable download logic with the Axum loopback daemon, desktop resource discovery, process control, Native Messaging integration, and desktop credential-store assumptions. Its crate types alone do not make it an Android boundary.
 
 The implemented first step is an **incremental extraction**, not a port of the desktop daemon and not a Kotlin reimplementation: `nova-core-model` now owns the shared `Task` and `Segment` records, and `nova-mobile-ffi` exposes a deliberately narrow, versioned UniFFI handshake that links for Android ARM64. A future `nova-mobile-core` must own shared task state, queue/retry policy, direct-download planning, integrity validation, and persistence contracts. Tauri, Axum, browser native messaging, desktop binary discovery, tray/window behavior, and desktop subprocess media execution remain outside that boundary.
 
@@ -67,7 +67,7 @@ flowchart TB
 | `crates/nova-download-core` | libcurl transfer orchestration, segment planning, progress aggregation, checksum verification, retry state | Tauri route handlers, desktop subprocesses, local HTTP server |
 | `crates/nova-mobile-core` | Mobile session facade, durable task intents, capability-safe callbacks, event throttling | Compose/UI types, Android `Context`, direct SAF calls |
 | `crates/nova-mobile-ffi` | UniFFI-exported records/enums/errors/objects and bridge-version check | Domain policy duplication, unbounded event payloads |
-| `src-tauri` | Existing desktop Tauri shell, Axum routes, browser extension/native host, desktop resources and media tools | Android lifecycle, Kotlin UI, Android storage |
+| `src-tauri` | Existing headless desktop Rust daemon, Axum routes, browser extension/native host, desktop resources and media tools | Android lifecycle, Kotlin UI, Android storage |
 | `android/app` | Compose UI, services/jobs, intents, notification actions, Android storage, network awareness | Download algorithm, segmented-transfer policy, retry state machine |
 
 The names above are a proposed module layout, not code that already exists.

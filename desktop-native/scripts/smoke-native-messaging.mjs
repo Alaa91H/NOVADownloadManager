@@ -104,11 +104,10 @@ if (!hostPath) {
 }
 
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "nova-native-host-smoke-"));
-const pairingSecret = "0123456789abcdef0123456789abcdef";
 const pairToken = "smoke-browser-token-0123456789abcdef";
 
 const observed = {
-  pairProof: false,
+  nativeHostMarker: false,
   captureAuth: false,
   capturePayload: false,
   capabilities: false,
@@ -143,10 +142,10 @@ const server = http.createServer((req, res) => {
     }
 
     if (req.method === "POST" && req.url === "/v1/pair/auto") {
-      observed.pairProof =
+      observed.nativeHostMarker =
         req.headers["x-nova-native-host"] === "1" &&
-        req.headers["x-nova-pairing-secret"] === pairingSecret;
-      if (!observed.pairProof) {
+        req.headers.origin === undefined;
+      if (!observed.nativeHostMarker) {
         json(403, { error: "invalid pairing proof" });
         return;
       }
@@ -203,17 +202,6 @@ fs.writeFileSync(
   String(port) + "\n" + String(process.pid) + "\n",
   "utf8"
 );
-fs.writeFileSync(
-  path.join(dataDir, "nova-daemon.pairing.json"),
-  JSON.stringify({
-    port,
-    pid: process.pid,
-    secret: pairingSecret,
-    protocolVersion: 1,
-  }),
-  "utf8"
-);
-
 const child = spawn(hostPath, ["--native-host"], {
   env: {
     ...process.env,

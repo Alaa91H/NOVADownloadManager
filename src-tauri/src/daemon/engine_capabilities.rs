@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use serde_json::{json, Value};
 
@@ -1063,7 +1063,7 @@ pub fn validate_linked_libcurl_integrity() -> Result<(), String> {
         && normalize_libcurl_version(&expected) != normalize_libcurl_version(&linked_version)
     {
         return Err(format!(
-            "Linked libcurl mismatch: build expected {expected}, but runtime reports {linked_version}. Rebuild with pnpm run native-curl:build and ensure PKG_CONFIG_PATH points to bin/native-curl-manifest.json pkgConfigPath before Cargo/Tauri build."
+            "Linked libcurl mismatch: build expected {expected}, but runtime reports {linked_version}. Rebuild with pnpm run native-curl:build and ensure PKG_CONFIG_PATH points to bin/native-curl-manifest.json pkgConfigPath before building the native Rust runtime."
         ));
     }
     let expected_protocols = expected_libcurl_protocols();
@@ -1191,19 +1191,86 @@ pub fn validate_curl_direct_options(
 pub fn native_media_status() -> Value {
     let core = nova_media_core::native_media_core_capabilities();
     let processing = nova_media_core::processing::native_media_processing_capabilities();
-    let (local_codecs, subtitle_embed_available, non_mp4_mux_available) = {
+    let (
+        local_codecs,
+        native_codec_registry,
+        subtitle_embed_available,
+        non_mp4_mux_available,
+    ) = {
         let available = nova_media_core::processing::native_media_codec_capabilities();
         let subtitle_embed_available = !available.subtitle_containers.is_empty();
         let non_mp4_mux_available = has_non_mp4_mux_pair(
             &available.video.output_containers,
             &available.audio.output_containers,
         );
-        (
+        let input_containers = available
+            .audio
+            .input_containers
+            .iter()
+            .chain(available.video.input_containers.iter())
+            .cloned()
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
+        let output_containers = available
+            .audio
+            .output_containers
+            .iter()
+            .chain(available.video.output_containers.iter())
+            .cloned()
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
+        let hardware_acceleration = if processing.hardware_acceleration {
+            json!({"status": "supported"})
+        } else {
             json!({
-                "audio": available.audio,
-                "video": available.video,
-                "subtitleContainers": available.subtitle_containers
-            }),
+                "status": "unavailable",
+                "reason": "No in-process hardware acceleration backend is registered in this build."
+            })
+        };
+        let local_codecs = json!({
+            "audio": &available.audio,
+            "video": &available.video,
+            "demuxers": &available.demuxers,
+            "muxers": &available.muxers,
+            "subtitleContainers": &available.subtitle_containers
+        });
+        let native_codec_registry = json!({
+            "schemaVersion": nova_core_model::CAPABILITY_REGISTRY_CONTRACT_VERSION,
+            "source": "nova-media-processing-core",
+            "status": "supported",
+            "containers": {
+                "inputExtensions": input_containers,
+                "outputExtensions": output_containers
+            },
+            "demuxers": &available.demuxers,
+            "muxers": &available.muxers,
+            "videoDecoders": &available.video.decoders,
+            "videoEncoders": &available.video.encoders,
+            "audioDecoders": &available.audio.decoders,
+            "audioEncoders": &available.audio.encoders,
+            "subtitleContainers": &available.subtitle_containers,
+            "pixelFormats": {
+                "status": "unavailable",
+                "formats": [],
+                "reason": "This build does not expose a complete runtime pixel-format registry."
+            },
+            "sampleFormats": {
+                "status": "unavailable",
+                "formats": [],
+                "reason": "The in-process encoder registry does not declare per-codec accepted sample formats."
+            },
+            "hdr": {
+                "status": "unavailable",
+                "reason": "No validated end-to-end HDR codec capability matrix is registered in this build."
+            },
+            "hardwareAcceleration": hardware_acceleration,
+            "platformRestrictions": []
+        });
+        (
+            local_codecs,
+            native_codec_registry,
             subtitle_embed_available,
             non_mp4_mux_available,
         )
@@ -1282,6 +1349,7 @@ pub fn native_media_status() -> Value {
             "videoTranscoding": processing.native_video_transcode,
             "codecBackend": if processing.native_audio_transcode || processing.native_video_transcode { "nova-in-process-rust" } else { "none" },
             "localCodecs": local_codecs,
+            "nativeCodecRegistry": native_codec_registry,
             "subtitles": true,
             "autoSubtitles": true,
             "subtitleEmbed": subtitle_embed_available,
@@ -1567,6 +1635,7 @@ pub fn all_engine_status(ffmpeg_bin: &str) -> Value {
         .unwrap_or_default();
     json!({
         "contractVersion": nova_core_model::RUNTIME_CAPABILITIES_CONTRACT_VERSION,
+        "capabilityRegistryVersion": nova_core_model::CAPABILITY_REGISTRY_CONTRACT_VERSION,
         "taskLifecycle": {
             "states": nova_core_model::TASK_LIFECYCLE_WIRE_STATES,
             "terminalStates": ["completed", "error"],
@@ -1617,6 +1686,35 @@ mod tests {
         let status = native_media_status();
         assert_eq!(status["available"], true);
         assert_eq!(status["runtimeCore"], "nova-media-core");
+        assert_eq!(
+            status["capabilities"]["nativeCodecRegistry"]["schemaVersion"],
+            nova_core_model::CAPABILITY_REGISTRY_CONTRACT_VERSION
+        );
+        assert_eq!(
+            status["capabilities"]["nativeCodecRegistry"]["source"],
+            "nova-media-processing-core"
+        );
+        for key in [
+            "demuxers",
+            "muxers",
+            "videoDecoders",
+            "videoEncoders",
+            "audioDecoders",
+            "audioEncoders",
+        ] {
+            assert!(
+                status["capabilities"]["nativeCodecRegistry"][key].is_array(),
+                "native codec registry must expose {key} from the runtime registry"
+            );
+        }
+        assert_eq!(
+            status["capabilities"]["nativeCodecRegistry"]["pixelFormats"]["status"],
+            "unavailable"
+        );
+        assert_eq!(
+            status["capabilities"]["nativeCodecRegistry"]["hdr"]["status"],
+            "unavailable"
+        );
         assert_eq!(status["capabilities"]["directMediaExecution"], true);
         assert_eq!(status["capabilities"]["hlsStaging"], true);
         assert_eq!(status["capabilities"]["dashStaging"], true);
@@ -1783,6 +1881,19 @@ mod tests {
         assert!(
             integrity.get("versionMatchesExpected").is_some(),
             "buildIntegrity must include versionMatchesExpected"
+        );
+    }
+
+    #[test]
+    fn runtime_capabilities_expose_both_versioned_contracts() {
+        let status = all_engine_status("__nova_missing_post_processor__");
+        assert_eq!(
+            status["contractVersion"],
+            nova_core_model::RUNTIME_CAPABILITIES_CONTRACT_VERSION
+        );
+        assert_eq!(
+            status["capabilityRegistryVersion"],
+            nova_core_model::CAPABILITY_REGISTRY_CONTRACT_VERSION
         );
     }
 

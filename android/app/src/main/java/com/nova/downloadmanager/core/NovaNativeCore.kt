@@ -107,6 +107,8 @@ internal object NovaNativeCore {
     internal data class NativeMediaCodecCapabilities(
         val audio: NativeMediaCodecTrackCapabilities,
         val video: NativeMediaCodecTrackCapabilities,
+        val demuxers: List<String>,
+        val muxers: List<String>,
         val subtitleContainers: List<String>,
         val engine: String,
     )
@@ -431,6 +433,8 @@ internal object NovaNativeCore {
         return NativeMediaCodecCapabilities(
             audio = track("audio"),
             video = track("video"),
+            demuxers = strings(root.optJSONArray("demuxers")),
+            muxers = strings(root.optJSONArray("muxers")),
             subtitleContainers = strings(root.optJSONArray("subtitleContainers")),
             engine = root.optString("engine", "nova-native-codecs"),
         )

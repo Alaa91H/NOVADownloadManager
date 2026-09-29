@@ -69,11 +69,10 @@ to regenerate a full dependency SBOM for a formal release.
 
 | Component | Role | License | Project |
 | --- | --- | --- | --- |
-| Tauri | Desktop shell & bundler | MIT / Apache-2.0 | https://tauri.app/ |
-| React | Desktop & extension UI | MIT | https://react.dev/ |
-| Rust crates (tokio, axum, reqwest, serde, …) | Rust daemon | MIT / Apache-2.0 | see `src-tauri/Cargo.lock` |
-| npm packages (see lockfile) | Frontend & tooling | mostly MIT / ISC / Apache-2.0 | see `pnpm-lock.yaml` |
-| WebView2 (Windows) | Rendering runtime | Microsoft distributable | https://developer.microsoft.com/microsoft-edge/webview2/ |
+| Qt 6.8 and selected Qt modules | Native Qt/QML desktop UI | Terms depend on the selected Qt distribution and modules; see the official licensing guide | [Qt 6.8 licensing](https://doc.qt.io/qt-6.8/licensing.html) |
+| React | Browser-extension UI | MIT | https://react.dev/ |
+| Rust crates (tokio, axum, reqwest, serde, …) | Rust daemon and native engines | Per-crate terms; see `src-tauri/Cargo.lock` and upstream notices | see `src-tauri/Cargo.lock` |
+| npm packages (see lockfile) | Browser extension and repository tooling | Per-package terms, commonly MIT / ISC / Apache-2.0 | see `pnpm-lock.yaml` |
 
 Static `libcurl` feature dependencies built in CI (zlib, brotli, zstd, nghttp2,
 libssh2) each carry their own permissive licenses (zlib, MIT, BSD) and are
@@ -85,9 +84,9 @@ covered by the same preservation requirement above.
 
 Before publishing a binary release:
 
-1. Ship this `THIRD_PARTY_NOTICES.md`, the root `LICENSE`, and upstream license
-   texts for linked dependencies inside the installed application directory
-   (NOVA stages these into `src-tauri/resources/` at build time — see
-   `scripts/build-tauri-assets.mjs`).
+1. Ship this `THIRD_PARTY_NOTICES.md`, the root `LICENSE`, and the upstream
+   license texts required by the Qt, Rust, and bundled native dependencies in
+   each desktop distribution. The Qt deployment and packaging steps must match
+   the libraries actually included in that artifact.
 2. Optionally regenerate a full SBOM with `pnpm licenses list` and a Cargo
    license tool for a complete dependency-level attribution list.

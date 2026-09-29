@@ -1,5 +1,6 @@
 {
   "contractVersion": 1,
+  "capabilityRegistryVersion": 1,
   "taskLifecycle": {
     "states": [
       "queued",
@@ -23,6 +24,7 @@
   "fixtures": {
     "ready": {
       "contractVersion": 1,
+      "capabilityRegistryVersion": 1,
       "directReady": true,
       "mediaExtractionReady": true,
       "streamingReady": true,
@@ -36,6 +38,7 @@
     },
     "partial": {
       "contractVersion": 1,
+      "capabilityRegistryVersion": 1,
       "directReady": true,
       "mediaExtractionReady": true,
       "streamingReady": true,
@@ -49,6 +52,7 @@
     },
     "disabled": {
       "contractVersion": 1,
+      "capabilityRegistryVersion": 1,
       "directReady": false,
       "mediaExtractionReady": false,
       "streamingReady": false,

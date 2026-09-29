@@ -419,3 +419,9 @@ Phase 4 (engine prerequisites) ──► Phase 5 (ship adaptive engine)
 ---
 
 This plan is executable phase-by-phase; start with Phase 0 then Phase 1 upon approval.
+# Historical repair plan
+
+> This plan was written for the former React/Tauri desktop stack. Use the Qt
+> desktop architecture and current CI workflow for present-day implementation
+> and release decisions.
+

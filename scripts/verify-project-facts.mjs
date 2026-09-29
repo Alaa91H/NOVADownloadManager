@@ -51,6 +51,14 @@ for (const retiredDependency of ['tauri =', 'tauri-build', 'tauri-plugin-']) {
     failures.push(`Rust runtime still contains retired Tauri dependency: ${retiredDependency}`);
   }
 }
+const cargoLock = read('src-tauri/Cargo.lock');
+if (/^name = "tauri(?:-build|-plugin-[^"]*)?"$/m.test(cargoLock)) {
+  failures.push('Rust lockfile still contains retired Tauri packages.');
+}
+const pnpmLock = read('pnpm-lock.yaml');
+if (pnpmLock.includes('@tauri-apps/')) {
+  failures.push('Node lockfile still contains retired Tauri desktop packages.');
+}
 
 const packageJson = JSON.parse(read('package.json'));
 if (Object.keys(packageJson.dependencies ?? {}).length !== 0) {

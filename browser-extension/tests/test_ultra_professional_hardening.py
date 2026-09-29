@@ -86,6 +86,6 @@ def test_native_messaging_manifest_uses_the_extension_public_key_identity() -> N
     assert chromium_id == 'jplpcjabfbfnmdoofcjchikfcmfbdiej'
     assert expected_origin in native_manifest['allowed_origins']
 
-    assets_builder = read('../scripts/build-tauri-assets.mjs')
-    assert 'chromiumExtensionIdFromPublicKey' in assets_builder
-    assert 'chromiumIds.add(chromiumExtensionIdFromPublicKey(chromiumKey))' in assets_builder
+    qt_integration = read('../desktop-native/src/platform/DesktopIntegration.cpp')
+    assert f'QStringLiteral("{expected_origin}")' in qt_integration
+    assert 'nativeHostManifest(const QString &hostPath)' in qt_integration

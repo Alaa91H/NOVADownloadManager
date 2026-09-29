@@ -192,6 +192,8 @@ pub struct MobileMediaCodecTrackCapabilities {
 pub struct MobileMediaCodecCapabilities {
     pub audio: MobileMediaCodecTrackCapabilities,
     pub video: MobileMediaCodecTrackCapabilities,
+    pub demuxers: Vec<String>,
+    pub muxers: Vec<String>,
     pub subtitle_containers: Vec<String>,
 }
 
@@ -1351,6 +1353,8 @@ pub fn native_media_codec_capabilities() -> MobileMediaCodecCapabilities {
     MobileMediaCodecCapabilities {
         audio: mobile_codec_track_capabilities(capabilities.audio),
         video: mobile_codec_track_capabilities(capabilities.video),
+        demuxers: capabilities.demuxers,
+        muxers: capabilities.muxers,
         subtitle_containers: capabilities.subtitle_containers,
     }
 }
@@ -1523,6 +1527,8 @@ fn mobile_media_codec_capabilities_json() -> String {
     serde_json::json!({
         "audio": capabilities.audio,
         "video": capabilities.video,
+        "demuxers": capabilities.demuxers,
+        "muxers": capabilities.muxers,
         "subtitleContainers": capabilities.subtitle_containers,
         "engine": "nova-native-codecs",
     })
@@ -2313,6 +2319,9 @@ mod tests {
         assert!(value["audio"]["encodersByContainer"].is_object());
         assert!(value["video"]["decoders"].is_array());
         assert!(value["video"]["encodersByContainer"].is_object());
+        assert!(value["demuxers"].is_array());
+        assert!(value["muxers"].is_array());
+        assert!(value["subtitleContainers"].is_array());
         assert_eq!(value["engine"], "nova-native-codecs");
     }
 

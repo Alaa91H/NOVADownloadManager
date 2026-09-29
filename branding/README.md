@@ -1,15 +1,21 @@
 # NOVA Branding Source
 
-This folder is the canonical source for NOVA product artwork.
+This folder keeps the canonical artwork used by the current product surfaces.
 
-- `source/app-icon.png` - master app/logo icon used to generate desktop, web, browser-extension, Android, iOS, ICO, and ICNS icons.
-- `source/installer-banner.png` - master wide banner used to generate HiDPI NSIS installer header/sidebar artwork.
-- `source/profile-logo.png` - master dark profile logo used inside the NSIS sidebar artwork.
+- `source/icon-hires.png` (or `source/app-icon.png` as a fallback) generates the
+  Qt desktop, browser-extension, and Android launcher icons.
+- `source/profile-logo.png` is the high-resolution logo used by the repository
+  README and product documentation.
+- `source/installer-banner.png` is retained artwork from the retired installer
+  design; current Qt packaging does not consume it.
 
-Do not manually edit generated artwork under `src-tauri/icons`, `src-tauri/windows`, `src/assets`, `public`, or `browser-extension/public/icons`. Update the files in `branding/source`, then run:
+Do not edit generated icons by hand. Update the canonical icon source and run:
 
 ```powershell
 pnpm run branding:generate
 ```
 
-Those generated target folders are kept only because Tauri, Vite, WXT, and NSIS require assets in specific locations during development, packaging, and store builds. NSIS artwork is generated at 4x logical size and downscaled by the installer UI to keep the banner sharp on high-DPI displays.
+The generator writes only to `desktop-native/resources/icons`,
+`browser-extension/public/icons`, and the Android launcher icon directories.
+The retired React/Vite/Tauri desktop assets, WebView resources, and NSIS artwork
+are not build targets for the current product.

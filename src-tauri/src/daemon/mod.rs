@@ -68,10 +68,7 @@ fn is_allowed_cors_origin(origin: &axum::http::HeaderValue) -> bool {
     let allowed_loopback = bytes == b"http://127.0.0.1"
         || bytes == b"http://localhost"
         || bytes.starts_with(b"http://127.0.0.1:")
-        || bytes.starts_with(b"http://localhost:")
-        || bytes.starts_with(b"tauri://localhost")
-        || bytes.starts_with(b"https://tauri.localhost")
-        || bytes.starts_with(b"http://tauri.localhost");
+        || bytes.starts_with(b"http://localhost:");
     // Chromium derives a stable origin from NOVA's public key. Firefox uses a
     // profile-local UUID, so it remains allowed only for already-authenticated
     // requests; its pairing flow is constrained to Native Messaging.
@@ -80,8 +77,8 @@ fn is_allowed_cors_origin(origin: &axum::http::HeaderValue) -> bool {
     allowed_loopback || allowed_extension
 }
 
-/// External shutdown signal, set by the host process (Tauri) to trigger
-/// graceful daemon shutdown via the `graceful_shutdown` future.
+/// External shutdown signal used by the headless backend to trigger graceful
+/// daemon shutdown via the `graceful_shutdown` future.
 static SHUTDOWN_TX: std::sync::Mutex<Option<oneshot::Sender<()>>> = std::sync::Mutex::new(None);
 /// Whether the daemon thread is alive. The integration host uses this to exit
 /// after a graceful signal-driven shutdown rather than lingering indefinitely.
@@ -105,9 +102,9 @@ fn generate_api_token() -> String {
     uuid::Uuid::new_v4().to_string().replace('-', "")
 }
 
-/// The API token shared between the daemon (which validates it) and the Tauri
-/// command layer (which hands it to the trusted desktop webview). Initialised
-/// once per process, so it stays stable across daemon restarts.
+/// The API token shared between the daemon and authenticated local clients.
+/// The Qt desktop obtains it through the trusted local pairing contract.
+/// Initialised once per backend process, it stays stable across daemon restarts.
 pub fn shared_api_token() -> String {
     static API_TOKEN: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     API_TOKEN
@@ -1187,6 +1184,12 @@ mod tests {
         )));
         assert!(!is_allowed_cors_origin(&HeaderValue::from_static(
             "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        )));
+        assert!(!is_allowed_cors_origin(&HeaderValue::from_static(
+            "tauri://localhost",
+        )));
+        assert!(!is_allowed_cors_origin(&HeaderValue::from_static(
+            "https://tauri.localhost",
         )));
         assert!(!is_allowed_cors_origin(&HeaderValue::from_static("null")));
     }

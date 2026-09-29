@@ -1,5 +1,9 @@
 # Static Audit Report
 
+> **Historical snapshot:** This audit was run on 18 August 2026 against the
+> pre-Qt dependency graph. Its Tauri-era RustSec exception list and results do
+> not describe the current native Qt/Rust desktop dependency graph.
+
 **Refresh date:** 18 August 2026
 **Scope:** the Git-tracked `NOVADownloadManager` repository, including the Rust core, the TypeScript interface, the browser extension, and build tooling.
 
@@ -12,7 +16,7 @@
 | Installer lifecycle audit | part of `pnpm run audit:final` | Passed |
 | Brand assets audit | part of `pnpm run audit:final` | Passed: 70 managed files |
 | Browser extension consistency and store release audit | part of `pnpm run audit:final` | Passed |
-| RustSec | `cd src-tauri && cargo audit --deny warnings` | Passed under the documented exceptions in `src-tauri/audit.toml` |
+| RustSec | `cd src-tauri && cargo audit --deny warnings` | Historical result only; current graph requires a fresh audit |
 | Clippy | `cargo clippy --locked --manifest-path src-tauri/Cargo.toml -- -D warnings` | Passed with no warnings |
 | Text encoding integrity | `git grep -n $'\uFFFD' -- ':!pnpm-lock.yaml'` | Should have no matches in tracked files |
 

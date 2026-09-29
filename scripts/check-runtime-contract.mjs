@@ -14,6 +14,9 @@ const expectedStates = contract.taskLifecycle.states;
 if (!Number.isInteger(contract.contractVersion) || contract.contractVersion < 1) {
   errors.push('contractVersion must be a positive integer');
 }
+if (!Number.isInteger(contract.capabilityRegistryVersion) || contract.capabilityRegistryVersion < 1) {
+  errors.push('capabilityRegistryVersion must be a positive integer');
+}
 if (new Set(expectedStates).size !== expectedStates.length) {
   errors.push('task lifecycle states must be unique');
 }
@@ -24,6 +27,9 @@ for (const [name, fixture] of Object.entries(contract.fixtures ?? {})) {
   if (fixture.contractVersion !== contract.contractVersion) {
     errors.push(`fixture ${name} uses contractVersion ${fixture.contractVersion}`);
   }
+  if (fixture.capabilityRegistryVersion !== contract.capabilityRegistryVersion) {
+    errors.push(`fixture ${name} uses capabilityRegistryVersion ${fixture.capabilityRegistryVersion}`);
+  }
   if (JSON.stringify(fixture.taskLifecycle) !== JSON.stringify(contract.taskLifecycle)) {
     errors.push(`fixture ${name} lifecycle contract diverges from the canonical definition`);
   }
@@ -31,11 +37,14 @@ for (const [name, fixture] of Object.entries(contract.fixtures ?? {})) {
 
 const requiredSourceFragments = [
   [rustModel, 'RUNTIME_CAPABILITIES_CONTRACT_VERSION: u32 = 1', 'Rust contract version'],
+  [rustModel, 'CAPABILITY_REGISTRY_CONTRACT_VERSION: u32 = 1', 'Rust capability registry version'],
   [rustModel, 'TASK_LIFECYCLE_WIRE_STATES', 'Rust lifecycle state list'],
   [engineCapabilities, '"contractVersion": nova_core_model::RUNTIME_CAPABILITIES_CONTRACT_VERSION', 'daemon contract version'],
+  [engineCapabilities, '"capabilityRegistryVersion": nova_core_model::CAPABILITY_REGISTRY_CONTRACT_VERSION', 'daemon capability registry version'],
   [engineCapabilities, '"cancelSemantics": "remove"', 'daemon cancel semantics'],
   [engineRoutes, '"taskLifecycle": status.get("taskLifecycle")', 'extension capability lifecycle propagation'],
   [extensionSchema, 'contractVersion: z.number().int().min(1)', 'extension contract version schema'],
+  [extensionSchema, 'capabilityRegistryVersion: z.number().int().min(1)', 'extension capability registry version schema'],
   [extensionSchema, "cancelSemantics: z.literal('remove')", 'extension cancel semantics schema'],
   [extensionSchema, "unknownStatePolicy: z.literal('reject')", 'extension unknown-state policy'],
 ];
@@ -53,4 +62,4 @@ if (errors.length) {
   for (const error of errors) console.error(`- ${error}`);
   process.exit(1);
 }
-console.log(`Runtime contract v${contract.contractVersion} is consistent across Rust and TypeScript consumers.`);
+console.log(`Runtime contract v${contract.contractVersion} and capability registry v${contract.capabilityRegistryVersion} are consistent across Rust and TypeScript consumers.`);

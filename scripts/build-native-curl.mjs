@@ -367,7 +367,7 @@ async function main() {
     '-B', buildDir,
     `-DCMAKE_INSTALL_PREFIX=${PREFIX_DIR}`,
     '-DCMAKE_BUILD_TYPE=Release',
-    // Rust/Tauri executables are PIE on modern Linux distributions. Keep the
+    // Rust desktop runtime executables are PIE on modern Linux distributions. Keep the
     // static archive PIC so curl-sys can link the daemon, not only test binaries.
     '-DCMAKE_POSITION_INDEPENDENT_CODE=ON',
     '-DBUILD_SHARED_LIBS=OFF',

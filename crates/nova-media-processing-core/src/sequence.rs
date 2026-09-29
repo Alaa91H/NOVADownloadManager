@@ -277,6 +277,7 @@ fn same_track_definition(left: &MediaTrack, right: &MediaTrack) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::VecDeque;
     use crate::{
         MediaCodec, MediaContainer, MediaPacketFlags, MediaTimeBase, MediaTrackKind,
         VideoParameters,

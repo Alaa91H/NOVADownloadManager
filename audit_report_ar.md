@@ -300,3 +300,8 @@ Location: `engine/dynamic_segments.rs` — the third parameter is unused (reserv
 | High bug | 1 | — |
 
 Final verdict: the current revision of the engine is actually wired into the flow (contrary to the July report) and adheres to solid security controls at creation. The single real-impact issue is the lack of re-validation of the destination after redirects and when using mirrors — this must be addressed before the network security layer can be considered complete. The remaining observations are improvements and do not prevent operation.
+# تقرير تاريخي
+
+> هذا التقرير مبني على بنية Tauri السابقة لانتقال سطح المكتب إلى Qt/QML؛ لا
+> يصف الواجهة أو الاعتمادات أو نقاط التشغيل الحالية.
+

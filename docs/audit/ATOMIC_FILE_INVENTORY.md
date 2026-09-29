@@ -1,5 +1,9 @@
 # Atomic File Inventory
 
+> **Historical snapshot:** This inventory predates the Qt desktop migration.
+> Its file count and listed legacy desktop paths are not a current repository
+> inventory.
+
 ## Tracked-file count
 962
 

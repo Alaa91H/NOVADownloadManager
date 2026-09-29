@@ -11,6 +11,9 @@ use serde::{Deserialize, Serialize};
 /// browser-extension and mobile clients.
 pub const RUNTIME_CAPABILITIES_CONTRACT_VERSION: u32 = 1;
 
+/// Version of the detailed per-engine capability registry payload.
+pub const CAPABILITY_REGISTRY_CONTRACT_VERSION: u32 = 1;
+
 /// Canonical task states that can appear on the public wire schema.
 ///
 /// Cancellation is deliberately not listed: the current API implements cancel

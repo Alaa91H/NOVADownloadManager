@@ -24,6 +24,7 @@ export const TaskLifecycleStateSchema = z.enum([
 export const RuntimeEngineCapabilitiesSchema = z.record(z.string(), z.unknown()).optional();
 export const CapabilitiesSchema = z.object({
   contractVersion: z.number().int().min(1).default(1),
+  capabilityRegistryVersion: z.number().int().min(1).optional(),
   items: z.array(CapabilitySchema).default([]),
   engineCapabilities: RuntimeEngineCapabilitiesSchema,
   taskLifecycle: z.object({

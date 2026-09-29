@@ -131,6 +131,7 @@ pub(super) fn extension_capabilities_from_status(status: &serde_json::Value) -> 
     }
     serde_json::json!({
         "contractVersion": status.get("contractVersion").cloned().unwrap_or_else(|| serde_json::json!(nova_core_model::RUNTIME_CAPABILITIES_CONTRACT_VERSION)),
+        "capabilityRegistryVersion": status.get("capabilityRegistryVersion").cloned().unwrap_or_else(|| serde_json::json!(nova_core_model::CAPABILITY_REGISTRY_CONTRACT_VERSION)),
         "items": items,
         "engineCapabilities": status,
         "taskLifecycle": status.get("taskLifecycle").cloned().unwrap_or_else(|| serde_json::json!({
@@ -1525,6 +1526,8 @@ mod tests {
     #[test]
     fn extension_media_capabilities_do_not_require_postprocessing() {
         let status = serde_json::json!({
+            "contractVersion": nova_core_model::RUNTIME_CAPABILITIES_CONTRACT_VERSION,
+            "capabilityRegistryVersion": nova_core_model::CAPABILITY_REGISTRY_CONTRACT_VERSION,
             "directReady": true,
             "mediaExtractionReady": true,
             "streamingReady": true,
@@ -1545,6 +1548,14 @@ mod tests {
             }
         });
         let capabilities = extension_capabilities_from_status(&status);
+        assert_eq!(
+            capabilities["contractVersion"],
+            nova_core_model::RUNTIME_CAPABILITIES_CONTRACT_VERSION
+        );
+        assert_eq!(
+            capabilities["capabilityRegistryVersion"],
+            nova_core_model::CAPABILITY_REGISTRY_CONTRACT_VERSION
+        );
         let items = capabilities
             .get("items")
             .and_then(serde_json::Value::as_array)

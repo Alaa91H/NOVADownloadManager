@@ -6,7 +6,6 @@ bin/
 .cache/
 .kilo/
 src-tauri/target/
-src-tauri/gen/
 src-tauri/resources/
 
 # Generated i18n translation dictionaries (produced by scripts/sync-i18n-index.mjs).
