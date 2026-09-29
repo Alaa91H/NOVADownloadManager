@@ -1949,6 +1949,4 @@ mod tests {
             assert!(!tf);
         }
     }
-
-    #[test]
 }

@@ -11,7 +11,7 @@ use nova_torrent_core::{
     PEER_HANDSHAKE_LEN,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpSocket, TcpStream};
+use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Semaphore;
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;

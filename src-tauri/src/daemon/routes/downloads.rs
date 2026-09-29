@@ -689,6 +689,11 @@ pub async fn handle_create_native_media_playlist(
         .as_deref()
         .unwrap_or("video")
         .to_ascii_lowercase();
+    let media_file_type = if media_mode == "audio" {
+        "audio"
+    } else {
+        "video"
+    };
     let start_immediately = body.start_immediately.unwrap_or(true);
     let queue_id = body.queue_id.clone().unwrap_or_else(|| "main".to_owned());
 
@@ -717,13 +722,12 @@ pub async fn handle_create_native_media_playlist(
 
         pending.spawn(async move {
             let result: Result<Task, String> = async {
-                let file_type = if media_mode == "audio" { "audio" } else { "video" };
                 let mut item_body = CreateDownloadBody {
                     url: Some(url.clone()),
                     name: Some(title.clone()),
-                    file_type: Some(file_type.to_owned()),
+                    file_type: Some(media_file_type.to_owned()),
                     size_bytes: None,
-                    category: Some(file_type.to_owned()),
+                    category: Some(media_file_type.to_owned()),
                     queue_id: Some(entry_queue_id),
                     connections,
                     resumable: Some(true),

@@ -4396,7 +4396,7 @@ fn resolve_native_media(
                     (Some(video), Some(audio)) => Some(video.saturating_add(audio)),
                     _ => None,
                 };
-                let default_container = separate_track_output_container(video, audio);
+                let default_container = separate_track_output_container(&video, &audio);
                 let output_container = requested_separate_track_container(
                     &default_container,
                     body.media_options.as_ref(),
