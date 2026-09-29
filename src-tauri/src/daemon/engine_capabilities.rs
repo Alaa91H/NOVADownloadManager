@@ -1692,8 +1692,8 @@ mod tests {
         assert_eq!(
             status["capabilities"]["nonMp4MuxBackend"],
             if has_non_mp4_mux_pair(
-                &serde_json::from_value(status["capabilities"]["localCodecs"]["video"]["outputContainers"].clone()).expect("video output containers"),
-                &serde_json::from_value(status["capabilities"]["localCodecs"]["audio"]["outputContainers"].clone()).expect("audio output containers"),
+                &serde_json::from_value::<Vec<String>>(status["capabilities"]["localCodecs"]["video"]["outputContainers"].clone()).expect("video output containers"),
+                &serde_json::from_value::<Vec<String>>(status["capabilities"]["localCodecs"]["audio"]["outputContainers"].clone()).expect("audio output containers"),
             ) { "nova-in-process-rust" } else { "unsupported" }
         );
         assert_eq!(
