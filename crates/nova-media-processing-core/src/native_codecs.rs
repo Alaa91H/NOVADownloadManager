@@ -87,7 +87,7 @@ pub fn native_media_codec_capabilities() -> NativeMediaCodecCapabilities {
                         .formats
                         .by_extension(extension)
                         .filter(|format| format.can_mux())?;
-                    format_accepts_subtitle_codec(&engine, format.name, *codec)
+                    format_accepts_subtitle_codec(&engine, format.name, codec)
                         .then(|| (*extension).to_owned())
                 })
                 .collect();
@@ -822,7 +822,7 @@ pub fn validate_local_media_subtitle_embed_job(
         )));
     }
     let (output_format, subtitle_codec) = subtitle_output_target(media_extension, &engine)?;
-    if !format_accepts_subtitle_codec(&engine, output_format, subtitle_codec) {
+    if !format_accepts_subtitle_codec(&engine, &output_format, subtitle_codec) {
         return Err(MediaProcessingError::UnsupportedCodec(
             format!(
                 "subtitle codec '{}' is unavailable for '.{media_extension}' in this local codec build",

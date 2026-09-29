@@ -174,7 +174,7 @@ version = "0.2.0"
 version = "0.2.0"
 
 [dependencies.rff-codec-avif]
-version = "0.2.0"
+path = "../rff-codec-avif-0.2.0"
 
 [dependencies.rff-codec-flac]
 version = "0.2.0"

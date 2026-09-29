@@ -1561,8 +1561,6 @@ dependencies = [
 [[package]]
 name = "rff-codec-avif"
 version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a97214f22000219589e2eddb9ff4be74c7db1bd4e5446f9757a53dcba726e69"
 dependencies = [
  "rff-codec",
  "rff-core",
