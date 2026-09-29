@@ -788,8 +788,8 @@
         {
           "file": "src-tauri/src/native_host.rs",
           "allOf": [
-            "parse_pairing_secret",
-            "native-messaging-secret-proof",
+            "NATIVE_HOST_PAIRING_HEADER",
+            "obtain_api_token",
             "candidate.send"
           ]
         },
@@ -823,7 +823,7 @@
             "candidate.send",
             "/v1/capture-reviews",
             "x-nova-native-host",
-            "x-nova-pairing-secret",
+            "req.headers.origin === undefined",
             "Bearer "
           ]
         },
