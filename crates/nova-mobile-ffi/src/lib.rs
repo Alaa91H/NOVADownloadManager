@@ -1226,8 +1226,7 @@ fn download_native_dash_stream(
                     )| {
                         selected.0.bandwidth.unwrap_or(0) > existing.0.bandwidth.unwrap_or(0)
                     },
-                )
-                {
+                ) {
                     video_selection = Some(selected);
                 }
             }
@@ -1240,8 +1239,7 @@ fn download_native_dash_stream(
                     )| {
                         selected.0.bandwidth.unwrap_or(0) > existing.0.bandwidth.unwrap_or(0)
                     },
-                )
-                {
+                ) {
                     audio_selection = Some(selected);
                 }
             }
