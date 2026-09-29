@@ -186,6 +186,7 @@ jobs:
           sdkmanager_exit=${PIPESTATUS[1]}
           set -o pipefail
           test "$sdkmanager_exit" -eq 0
+          bash scripts/install-linux-build-deps.sh nasm
           sdkmanager --install \
             'platform-tools' \
             'platforms;android-37.0' \

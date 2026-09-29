@@ -50,6 +50,10 @@ pub struct DashAdaptationSet {
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct DashPeriod {
     pub id: Option<String>,
+    pub start: Option<String>,
+    pub duration: Option<String>,
+    pub base_url: Option<String>,
+    pub segment_template: Option<DashSegmentTemplate>,
     pub adaptations: Vec<DashAdaptationSet>,
 }
 
@@ -58,6 +62,8 @@ pub struct DashManifest {
     pub is_dynamic: bool,
     pub minimum_update_period: Option<String>,
     pub media_presentation_duration: Option<String>,
+    pub base_url: Option<String>,
+    pub segment_template: Option<DashSegmentTemplate>,
     pub periods: Vec<DashPeriod>,
 }
 
@@ -73,6 +79,8 @@ pub enum DashError {
 
 #[derive(Clone, Copy)]
 enum BaseUrlTarget {
+    Manifest,
+    Period,
     Adaptation,
     Representation,
 }
@@ -101,10 +109,7 @@ pub fn parse_dash(body: &str) -> Result<DashManifest, DashError> {
                     apply_mpd_attributes(&event, &mut manifest);
                 }
                 b"Period" => {
-                    current_period = Some(DashPeriod {
-                        id: attribute(&event, b"id"),
-                        adaptations: Vec::new(),
-                    });
+                    current_period = Some(parse_period(&event));
                 }
                 b"AdaptationSet" => {
                     current_adaptation = Some(parse_adaptation(&event));
@@ -114,11 +119,13 @@ pub fn parse_dash(body: &str) -> Result<DashManifest, DashError> {
                 }
                 b"SegmentTemplate" => {
                     let template = parse_segment_template(&event);
-                    if let Some(representation) = current_representation.as_mut() {
-                        representation.segment_template = Some(template);
-                    } else if let Some(adaptation) = current_adaptation.as_mut() {
-                        adaptation.segment_template = Some(template);
-                    }
+                    set_active_segment_template(
+                        &mut current_representation,
+                        &mut current_adaptation,
+                        &mut current_period,
+                        &mut manifest,
+                        template,
+                    );
                 }
                 b"SegmentTimeline" => inside_segment_timeline = true,
                 b"S" if inside_segment_timeline => {
@@ -126,6 +133,8 @@ pub fn parse_dash(body: &str) -> Result<DashManifest, DashError> {
                         if let Some(template) = active_segment_template_mut(
                             &mut current_representation,
                             &mut current_adaptation,
+                            &mut current_period,
+                            &mut manifest,
                         ) {
                             template.timeline.push(entry);
                         }
@@ -136,8 +145,10 @@ pub fn parse_dash(body: &str) -> Result<DashManifest, DashError> {
                         Some(BaseUrlTarget::Representation)
                     } else if current_adaptation.is_some() {
                         Some(BaseUrlTarget::Adaptation)
+                    } else if current_period.is_some() {
+                        Some(BaseUrlTarget::Period)
                     } else {
-                        None
+                        Some(BaseUrlTarget::Manifest)
                     };
                 }
                 _ => {}
@@ -145,11 +156,13 @@ pub fn parse_dash(body: &str) -> Result<DashManifest, DashError> {
             Ok(Event::Empty(event)) => match local_name(event.name().as_ref()) {
                 b"SegmentTemplate" => {
                     let template = parse_segment_template(&event);
-                    if let Some(representation) = current_representation.as_mut() {
-                        representation.segment_template = Some(template);
-                    } else if let Some(adaptation) = current_adaptation.as_mut() {
-                        adaptation.segment_template = Some(template);
-                    }
+                    set_active_segment_template(
+                        &mut current_representation,
+                        &mut current_adaptation,
+                        &mut current_period,
+                        &mut manifest,
+                        template,
+                    );
                 }
                 b"Representation" => {
                     if let Some(adaptation) = current_adaptation.as_mut() {
@@ -163,9 +176,21 @@ pub fn parse_dash(body: &str) -> Result<DashManifest, DashError> {
                         if let Some(template) = active_segment_template_mut(
                             &mut current_representation,
                             &mut current_adaptation,
+                            &mut current_period,
+                            &mut manifest,
                         ) {
                             template.timeline.push(entry);
                         }
+                    }
+                }
+                b"MPD" => {
+                    saw_mpd = true;
+                    apply_mpd_attributes(&event, &mut manifest);
+                }
+                b"Period" => manifest.periods.push(parse_period(&event)),
+                b"AdaptationSet" => {
+                    if let Some(period) = current_period.as_mut() {
+                        period.adaptations.push(parse_adaptation(&event));
                     }
                 }
                 _ => {}
@@ -180,11 +205,17 @@ pub fn parse_dash(body: &str) -> Result<DashManifest, DashError> {
                                     representation.base_url = Some(value);
                                 }
                             }
+                            BaseUrlTarget::Period => {
+                                if let Some(period) = current_period.as_mut() {
+                                    period.base_url = Some(value);
+                                }
+                            }
                             BaseUrlTarget::Adaptation => {
                                 if let Some(adaptation) = current_adaptation.as_mut() {
                                     adaptation.base_url = Some(value);
                                 }
                             }
+                            BaseUrlTarget::Manifest => manifest.base_url = Some(value),
                         }
                     }
                 }
@@ -231,6 +262,17 @@ fn apply_mpd_attributes(event: &BytesStart<'_>, manifest: &mut DashManifest) {
         attribute(event, b"type").is_some_and(|value| value.eq_ignore_ascii_case("dynamic"));
     manifest.minimum_update_period = attribute(event, b"minimumUpdatePeriod");
     manifest.media_presentation_duration = attribute(event, b"mediaPresentationDuration");
+}
+
+fn parse_period(event: &BytesStart<'_>) -> DashPeriod {
+    DashPeriod {
+        id: attribute(event, b"id"),
+        start: attribute(event, b"start"),
+        duration: attribute(event, b"duration"),
+        base_url: None,
+        segment_template: None,
+        adaptations: Vec::new(),
+    }
 }
 
 fn parse_adaptation(event: &BytesStart<'_>) -> DashAdaptationSet {
@@ -281,17 +323,49 @@ fn parse_timeline_entry(event: &BytesStart<'_>) -> Option<DashTimelineEntry> {
     })
 }
 
+fn set_active_segment_template(
+    representation: &mut Option<DashRepresentation>,
+    adaptation: &mut Option<DashAdaptationSet>,
+    period: &mut Option<DashPeriod>,
+    manifest: &mut DashManifest,
+    template: DashSegmentTemplate,
+) {
+    if let Some(representation) = representation.as_mut() {
+        representation.segment_template = Some(template);
+    } else if let Some(adaptation) = adaptation.as_mut() {
+        adaptation.segment_template = Some(template);
+    } else if let Some(period) = period.as_mut() {
+        period.segment_template = Some(template);
+    } else {
+        manifest.segment_template = Some(template);
+    }
+}
+
 fn active_segment_template_mut<'a>(
     representation: &'a mut Option<DashRepresentation>,
     adaptation: &'a mut Option<DashAdaptationSet>,
+    period: &'a mut Option<DashPeriod>,
+    manifest: &'a mut DashManifest,
 ) -> Option<&'a mut DashSegmentTemplate> {
-    if let Some(representation) = representation.as_mut() {
-        representation.segment_template.as_mut()
-    } else {
-        adaptation
-            .as_mut()
-            .and_then(|adaptation| adaptation.segment_template.as_mut())
+    if let Some(template) = representation
+        .as_mut()
+        .and_then(|representation| representation.segment_template.as_mut())
+    {
+        return Some(template);
     }
+    if let Some(template) = adaptation
+        .as_mut()
+        .and_then(|adaptation| adaptation.segment_template.as_mut())
+    {
+        return Some(template);
+    }
+    if let Some(template) = period
+        .as_mut()
+        .and_then(|period| period.segment_template.as_mut())
+    {
+        return Some(template);
+    }
+    manifest.segment_template.as_mut()
 }
 
 fn attribute(event: &BytesStart<'_>, key: &[u8]) -> Option<String> {
@@ -379,9 +453,8 @@ pub fn select_best_dash_representation(
 
 /// Build a native transfer plan for a static DASH representation.
 ///
-/// This first planner supports direct BaseURL resources and fixed-duration
-/// SegmentTemplate MPDs. SegmentTimeline/dynamic refresh are intentionally
-/// separate extensions rather than silently approximated.
+/// This planner supports hierarchical BaseURL and SegmentTemplate inheritance,
+/// direct resources, and fixed-duration or explicit SegmentTimeline plans.
 pub fn build_dash_representation_plan(
     manifest: &DashManifest,
     manifest_url: &str,
@@ -403,24 +476,24 @@ pub fn build_dash_representation_plan(
         .ok_or(DashPlanError::MissingRepresentation)?;
 
     let mut base = Url::parse(manifest_url).map_err(|_| DashPlanError::InvalidManifestUrl)?;
-    if let Some(adaptation_base) = &adaptation.base_url {
+    for base_url in [
+        manifest.base_url.as_deref(),
+        period.base_url.as_deref(),
+        adaptation.base_url.as_deref(),
+        representation.base_url.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    {
         base = base
-            .join(adaptation_base)
-            .map_err(|_| DashPlanError::InvalidManifestUrl)?;
-    }
-    if let Some(representation_base) = &representation.base_url {
-        base = base
-            .join(representation_base)
+            .join(base_url)
             .map_err(|_| DashPlanError::InvalidManifestUrl)?;
     }
 
     let track_kind = dash_track_kind(adaptation, representation);
-    let template = representation
-        .segment_template
-        .as_ref()
-        .or(adaptation.segment_template.as_ref());
+    let template = effective_segment_template(manifest, period, adaptation, representation);
 
-    let Some(template) = template else {
+    let Some(template) = template.as_ref() else {
         if manifest.is_dynamic {
             return Err(DashPlanError::DynamicManifest);
         }
@@ -438,6 +511,7 @@ pub fn build_dash_representation_plan(
         });
     };
 
+    let period_duration_millis = dash_period_duration_millis(manifest, period_index);
     let media_template = template
         .media
         .as_deref()
@@ -469,7 +543,7 @@ pub fn build_dash_representation_plan(
 
     if !template.timeline.is_empty() {
         append_timeline_units(
-            manifest,
+            period_duration_millis,
             template,
             media_template,
             representation,
@@ -489,12 +563,8 @@ pub fn build_dash_representation_plan(
             return Err(DashPlanError::MissingSegmentTiming);
         }
 
-        let duration_text = manifest
-            .media_presentation_duration
-            .as_deref()
+        let total_millis = period_duration_millis
             .ok_or(DashPlanError::MissingPresentationDuration)?;
-        let total_millis = parse_iso8601_duration_millis(duration_text)
-            .ok_or_else(|| DashPlanError::InvalidPresentationDuration(duration_text.to_owned()))?;
         let numerator = u128::from(total_millis) * u128::from(timescale);
         let denominator = u128::from(segment_duration) * 1000;
         let segment_count = numerator.saturating_add(denominator.saturating_sub(1)) / denominator;
@@ -527,9 +597,71 @@ pub fn build_dash_representation_plan(
     })
 }
 
+fn effective_segment_template(
+    manifest: &DashManifest,
+    period: &DashPeriod,
+    adaptation: &DashAdaptationSet,
+    representation: &DashRepresentation,
+) -> Option<DashSegmentTemplate> {
+    let mut effective = DashSegmentTemplate::default();
+    let mut found = false;
+
+    for template in [
+        manifest.segment_template.as_ref(),
+        period.segment_template.as_ref(),
+        adaptation.segment_template.as_ref(),
+        representation.segment_template.as_ref(),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        found = true;
+        effective.timescale = template.timescale.or(effective.timescale);
+        effective.duration = template.duration.or(effective.duration);
+        effective.start_number = template.start_number.or(effective.start_number);
+        effective.media = template.media.clone().or(effective.media);
+        effective.initialization = template.initialization.clone().or(effective.initialization);
+        if !template.timeline.is_empty() {
+            effective.timeline.clone_from(&template.timeline);
+        }
+    }
+
+    found.then_some(effective)
+}
+
+fn dash_period_duration_millis(manifest: &DashManifest, period_index: usize) -> Option<u64> {
+    let period = manifest.periods.get(period_index)?;
+    if let Some(duration) = period
+        .duration
+        .as_deref()
+        .and_then(parse_iso8601_duration_millis)
+    {
+        return Some(duration);
+    }
+
+    let start = period
+        .start
+        .as_deref()
+        .and_then(parse_iso8601_duration_millis)
+        .or_else(|| (period_index == 0).then_some(0))?;
+    let end = manifest
+        .periods
+        .get(period_index + 1)
+        .and_then(|next| next.start.as_deref())
+        .and_then(parse_iso8601_duration_millis)
+        .or_else(|| {
+            (period_index + 1 == manifest.periods.len())
+                .then(|| manifest.media_presentation_duration.as_deref())
+                .flatten()
+                .and_then(parse_iso8601_duration_millis)
+        })?;
+
+    end.checked_sub(start)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn append_timeline_units(
-    manifest: &DashManifest,
+    period_duration_millis: Option<u64>,
     template: &DashSegmentTemplate,
     media_template: &str,
     representation: &DashRepresentation,
@@ -539,10 +671,7 @@ fn append_timeline_units(
     units: &mut Vec<DashTransferUnit>,
 ) -> Result<(), DashPlanError> {
     let timescale = template.timescale.unwrap_or(1);
-    let presentation_units = manifest
-        .media_presentation_duration
-        .as_deref()
-        .and_then(parse_iso8601_duration_millis)
+    let presentation_units = period_duration_millis
         .map(|millis| (u128::from(millis) * u128::from(timescale)) / 1000)
         .and_then(|value| u64::try_from(value).ok());
 
@@ -946,6 +1075,84 @@ mod tests {
             "https://cdn.test/path/chunk-005-2000.m4s"
         );
         assert_eq!(plan.units[3].number, Some(7));
+    }
+
+    #[test]
+    fn inherits_base_urls_and_segment_template_fields_from_every_scope() {
+        let manifest = parse_dash(
+            r#"<MPD type="static" mediaPresentationDuration="PT20S">
+<BaseURL>https://cdn.test/root/</BaseURL>
+<SegmentTemplate timescale="1" duration="5" startNumber="1"
+ initialization="root-init.mp4" media="root-$Number$.m4s"/>
+<Period id="p0" duration="PT8S">
+  <BaseURL>period/</BaseURL>
+  <SegmentTemplate media="period-$Number$.m4s"/>
+  <AdaptationSet contentType="video">
+    <BaseURL>video/</BaseURL>
+    <SegmentTemplate initialization="adapt-init.mp4"/>
+    <Representation id="v1080" bandwidth="5000000" width="1920" height="1080">
+      <BaseURL>1080/</BaseURL>
+      <SegmentTemplate startNumber="7"/>
+    </Representation>
+  </AdaptationSet>
+</Period>
+</MPD>"#,
+        )
+        .expect("DASH manifest");
+
+        let plan = build_dash_representation_plan(
+            &manifest,
+            "https://origin.test/path/manifest.mpd",
+            0,
+            0,
+            0,
+        )
+        .expect("inherited DASH plan");
+
+        assert_eq!(plan.units.len(), 3);
+        assert!(plan.units[0].initialization);
+        assert_eq!(
+            plan.units[0].url,
+            "https://cdn.test/root/period/video/1080/adapt-init.mp4"
+        );
+        assert_eq!(
+            plan.units[1].url,
+            "https://cdn.test/root/period/video/1080/period-7.m4s"
+        );
+        assert_eq!(
+            plan.units[2].url,
+            "https://cdn.test/root/period/video/1080/period-8.m4s"
+        );
+    }
+
+    #[test]
+    fn resolves_period_duration_from_the_next_period_start() {
+        let manifest = parse_dash(
+            r#"<MPD type="static" mediaPresentationDuration="PT12S">
+<Period id="p0" start="PT0S" duration="PT3S"/>
+<Period id="p1" start="PT3S">
+  <AdaptationSet contentType="audio">
+    <SegmentTemplate timescale="1" duration="3" media="audio-$Number$.m4s"/>
+    <Representation id="a1" bandwidth="128000"/>
+  </AdaptationSet>
+</Period>
+<Period id="p2" start="PT8S" duration="PT4S"/>
+</MPD>"#,
+        )
+        .expect("DASH manifest");
+
+        let plan = build_dash_representation_plan(
+            &manifest,
+            "https://cdn.test/manifest.mpd",
+            1,
+            0,
+            0,
+        )
+        .expect("period duration from next start");
+
+        assert_eq!(plan.units.len(), 2);
+        assert_eq!(plan.units[0].url, "https://cdn.test/audio-1.m4s");
+        assert_eq!(plan.units[1].url, "https://cdn.test/audio-2.m4s");
     }
 
     #[test]

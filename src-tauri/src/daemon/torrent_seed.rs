@@ -160,20 +160,32 @@ mod seed_port_tests {
 }
 
 async fn bind_ipv6_seed_listener(port: u16) -> Option<TcpListener> {
-    let result = async {
-        let socket = TcpSocket::new_v6().map_err(|error| error.to_string())?;
+    let result = (|| -> Result<TcpListener, String> {
+        let socket = socket2::Socket::new(
+            socket2::Domain::IPV6,
+            socket2::Type::STREAM,
+            Some(socket2::Protocol::TCP),
+        )
+        .map_err(|error| error.to_string())?;
         socket
             .set_only_v6(true)
             .map_err(|error| error.to_string())?;
         socket
-            .set_reuseaddr(true)
+            .set_reuse_address(true)
             .map_err(|error| error.to_string())?;
         socket
-            .bind(SocketAddr::from((Ipv6Addr::UNSPECIFIED, port)))
+            .bind(&socket2::SockAddr::from(SocketAddr::from((
+                Ipv6Addr::UNSPECIFIED,
+                port,
+            ))))
             .map_err(|error| error.to_string())?;
-        socket.listen(1024).map_err(|error| error.to_string())
-    }
-    .await;
+        socket.listen(1024).map_err(|error| error.to_string())?;
+        socket
+            .set_nonblocking(true)
+            .map_err(|error| error.to_string())?;
+        let listener: std::net::TcpListener = socket.into();
+        TcpListener::from_std(listener).map_err(|error| error.to_string())
+    })();
 
     match result {
         Ok(listener) => Some(listener),

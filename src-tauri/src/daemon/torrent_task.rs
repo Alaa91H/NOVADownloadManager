@@ -419,7 +419,7 @@ pub async fn create_torrent_task(
 }
 
 fn existing_torrent_task_id<'a>(
-    tasks: impl Iterator<Item = &'a Task>,
+    mut tasks: impl Iterator<Item = &'a Task>,
     info_hash: &str,
 ) -> Option<&'a str> {
     tasks

@@ -653,7 +653,7 @@ pub async fn handle_create_native_media_playlist(
             return Err((
                 StatusCode::UNPROCESSABLE_ENTITY,
                 Json(serde_json::json!({
-                    "error": format!("Playlist item index is unavailable: {}", missing.iter().map(u64::to_string).collect::<Vec<_>>().join(", "))
+                    "error": format!("Playlist item index is unavailable: {}", missing.iter().map(usize::to_string).collect::<Vec<_>>().join(", "))
                 })),
             ));
         }
@@ -804,14 +804,14 @@ pub async fn handle_create_native_media_playlist(
 
 fn parse_native_media_playlist_selection(
     raw: Option<&str>,
-) -> Result<Option<HashSet<u64>>, String> {
+) -> Result<Option<HashSet<usize>>, String> {
     let Some(raw) = raw.map(str::trim).filter(|value| !value.is_empty()) else {
         return Ok(None);
     };
     let mut indices = HashSet::new();
     for value in raw.split(',').map(str::trim) {
         let index = value
-            .parse::<u64>()
+            .parse::<usize>()
             .ok()
             .filter(|index| *index > 0)
             .ok_or_else(|| "Playlist item indexes must be positive integers".to_owned())?;

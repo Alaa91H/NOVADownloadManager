@@ -1828,8 +1828,8 @@ where
     let audio_path = staging_dir.join(format!("{label}-audio-track.{}", audio.container));
     let muxed_path = staging_dir.join(format!("{label}-muxed.{output_container}"));
     let job = nova_media_core::processing::NativeMediaMuxJob {
-        video_source: video_path,
-        audio_source: audio_path,
+        video_source: video_path.clone(),
+        audio_source: audio_path.clone(),
         destination: muxed_path.clone(),
         video_container: video.container.clone(),
         audio_container: audio.container.clone(),
@@ -1849,8 +1849,10 @@ where
             MediaProcessingControl::Continue
         }
     };
-    let result = nova_media_core::processing::mux_local_media_tracks(&job, &control, &|_| {})
-        .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+    let no_progress = |_: &nova_media_core::processing::MediaProcessingProgress| {};
+    let result =
+        nova_media_core::processing::mux_local_media_tracks(&job, &control, &no_progress)
+            .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
     Ok((muxed_path, result.output_bytes))
 }
 
@@ -4373,6 +4375,7 @@ fn resolve_native_media(
                     .streams
                     .iter()
                     .find(|stream| stream.id == video_stream_id)
+                    .cloned()
                     .ok_or_else(|| {
                         NativeMediaTaskError::Resolution(
                             "selected native video track disappeared".to_owned(),
@@ -4383,6 +4386,7 @@ fn resolve_native_media(
                     .streams
                     .iter()
                     .find(|stream| stream.id == audio_stream_id)
+                    .cloned()
                     .ok_or_else(|| {
                         NativeMediaTaskError::Resolution(
                             "selected native audio track disappeared".to_owned(),

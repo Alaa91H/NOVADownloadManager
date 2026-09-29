@@ -1421,8 +1421,14 @@ pub async fn handle_v1_media_add(
             );
         }
     };
+    if !has_video && !has_audio {
+        return Json(
+            serde_json::json!({"ok": false, "accepted": false, "taskId": "", "taskIds": [], "message": "The selected media format contains no audio or video track."}),
+        );
+    }
+    let media_kind = if has_video { "video" } else { "audio" };
     let mut media_options = crate::daemon::types::MediaDownloadOptions {
-        mode: Some(if has_video { "video" } else { "audio" }.to_owned()),
+        mode: Some(media_kind.to_owned()),
         format_selector: Some(format_selector),
         referer: body
             .get("referrer")
@@ -1450,7 +1456,7 @@ pub async fn handle_v1_media_add(
             .filter(|value| !value.is_empty())
             .map(str::to_owned)
             .or_else(|| Some("media".to_owned())),
-        file_type: Some(if has_video { "video" } else { "audio" }.to_owned()),
+        file_type: Some(media_kind.to_owned()),
         size_bytes: selected
             .get("estimatedSizeBytes")
             .or_else(|| selected.get("filesize"))

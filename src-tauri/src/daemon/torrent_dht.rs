@@ -858,13 +858,13 @@ pub async fn run_dht_announce_lifecycle(
             break;
         }
 
-        let Some(peer_port) = crate::daemon::torrent_seed::active_seed_port() else {
+        if crate::daemon::torrent_seed::active_seed_port().is_none() {
             tokio::select! {
                 _ = cancel.cancelled() => break,
                 _ = tokio::time::sleep(DHT_ANNOUNCE_RETRY_INTERVAL) => {}
             }
             continue;
-        };
+        }
         if active_dht_port().is_none() {
             tokio::select! {
                 _ = cancel.cancelled() => break,
