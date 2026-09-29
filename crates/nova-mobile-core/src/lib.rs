@@ -9,11 +9,11 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
+use nova_download_core::HttpRequestContext;
 use nova_media_processing_core::{
     transcode_local_media, MediaProcessingControl, MediaProcessingPhase, MediaProcessingProgress,
     NativeMediaTranscodeJob, NativeMediaTranscodeResult,
 };
-use nova_download_core::HttpRequestContext;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MobileTransferOutcome {
@@ -119,7 +119,10 @@ impl MediaProcessingSession {
     }
 
     fn snapshot(&self) -> MobileMediaProcessingProgress {
-        self.progress.lock().map(|progress| *progress).unwrap_or_default()
+        self.progress
+            .lock()
+            .map(|progress| *progress)
+            .unwrap_or_default()
     }
 
     fn update(&self, update: &MediaProcessingProgress) {
@@ -230,8 +233,8 @@ fn media_processing_sessions() -> &'static Mutex<HashMap<String, Arc<MediaProces
     SESSIONS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-fn last_media_processing_progress(
-) -> &'static Mutex<HashMap<String, MobileMediaProcessingProgress>> {
+fn last_media_processing_progress() -> &'static Mutex<HashMap<String, MobileMediaProcessingProgress>>
+{
     static PROGRESS: OnceLock<Mutex<HashMap<String, MobileMediaProcessingProgress>>> =
         OnceLock::new();
     PROGRESS.get_or_init(|| Mutex::new(HashMap::new()))
@@ -268,16 +271,17 @@ fn validate_media_source_inside_root(
     root: &Path,
     source: &Path,
 ) -> Result<PathBuf, MobileMediaProcessingError> {
-    let root = root.canonicalize().map_err(|error| {
-        MobileMediaProcessingError::ProcessingFailed {
-            message: error.to_string(),
-        }
-    })?;
-    let source = source.canonicalize().map_err(|error| {
-        MobileMediaProcessingError::ProcessingFailed {
-            message: error.to_string(),
-        }
-    })?;
+    let root =
+        root.canonicalize()
+            .map_err(|error| MobileMediaProcessingError::ProcessingFailed {
+                message: error.to_string(),
+            })?;
+    let source =
+        source
+            .canonicalize()
+            .map_err(|error| MobileMediaProcessingError::ProcessingFailed {
+                message: error.to_string(),
+            })?;
     if !source.starts_with(&root) || !source.is_file() {
         return Err(MobileMediaProcessingError::PathEscapedRoot);
     }
@@ -288,22 +292,25 @@ fn prepare_media_destination_inside_root(
     root: &Path,
     destination: &Path,
 ) -> Result<PathBuf, MobileMediaProcessingError> {
-    let root = root.canonicalize().map_err(|error| {
-        MobileMediaProcessingError::ProcessingFailed {
-            message: error.to_string(),
-        }
-    })?;
-    let parent = destination.parent().ok_or(MobileMediaProcessingError::InvalidRelativePath)?;
+    let root =
+        root.canonicalize()
+            .map_err(|error| MobileMediaProcessingError::ProcessingFailed {
+                message: error.to_string(),
+            })?;
+    let parent = destination
+        .parent()
+        .ok_or(MobileMediaProcessingError::InvalidRelativePath)?;
     std::fs::create_dir_all(parent).map_err(|error| {
         MobileMediaProcessingError::ProcessingFailed {
             message: error.to_string(),
         }
     })?;
-    let parent = parent.canonicalize().map_err(|error| {
-        MobileMediaProcessingError::ProcessingFailed {
-            message: error.to_string(),
-        }
-    })?;
+    let parent =
+        parent
+            .canonicalize()
+            .map_err(|error| MobileMediaProcessingError::ProcessingFailed {
+                message: error.to_string(),
+            })?;
     if !parent.starts_with(&root) {
         return Err(MobileMediaProcessingError::PathEscapedRoot);
     }
@@ -347,7 +354,9 @@ pub fn transcode_media_in_app_private(
             message: "missing media processing task id".to_owned(),
         });
     }
-    if options.input_container.trim().is_empty() || (!options.include_video && !options.include_audio) {
+    if options.input_container.trim().is_empty()
+        || (!options.include_video && !options.include_audio)
+    {
         return Err(MobileMediaProcessingError::ProcessingFailed {
             message: "select a source container and at least one media track".to_owned(),
         });
@@ -368,9 +377,7 @@ pub fn transcode_media_in_app_private(
                 message: "native media session registry is unavailable".to_owned(),
             }
         })?;
-        if sessions.contains_key(task_id)
-            || is_transfer_active(task_id)
-        {
+        if sessions.contains_key(task_id) || is_transfer_active(task_id) {
             return Err(MobileMediaProcessingError::ProcessingFailed {
                 message: "native task id is already active".to_owned(),
             });
@@ -617,11 +624,12 @@ pub fn prepare_app_private_output_path(
     relative_destination: &Path,
 ) -> Result<PathBuf, MobileTransferError> {
     let lexical = validated_app_private_destination(app_private_root, relative_destination)?;
-    let root = app_private_root
-        .canonicalize()
-        .map_err(|error| MobileTransferError::TransferFailed {
-            message: error.to_string(),
-        })?;
+    let root =
+        app_private_root
+            .canonicalize()
+            .map_err(|error| MobileTransferError::TransferFailed {
+                message: error.to_string(),
+            })?;
     let parent = lexical
         .parent()
         .ok_or(MobileTransferError::InvalidRelativeDestination)?;
@@ -668,11 +676,12 @@ pub fn prepare_app_private_media_staging_dir(
     {
         return Err(MobileTransferError::InvalidRelativeDestination);
     }
-    let root = app_private_root
-        .canonicalize()
-        .map_err(|error| MobileTransferError::TransferFailed {
-            message: error.to_string(),
-        })?;
+    let root =
+        app_private_root
+            .canonicalize()
+            .map_err(|error| MobileTransferError::TransferFailed {
+                message: error.to_string(),
+            })?;
     let parent = root.join("nova-media-staging");
     std::fs::create_dir_all(&parent).map_err(|error| MobileTransferError::TransferFailed {
         message: error.to_string(),
@@ -753,14 +762,15 @@ pub fn download_to_app_private_path_with_context(
 ) -> Result<MobileTransferOutcome, MobileTransferError> {
     let destination = prepare_app_private_output_path(app_private_root, relative_destination)?;
     let session = begin_mobile_transfer_session(task_id)?;
-    let transfer_result = nova_download_core::download_http_to_path_segmented_controlled_with_context(
-        url,
-        &destination,
-        requested_connections.max(1),
-        request_context,
-        || session.control(),
-        |downloaded_bytes, total_bytes| session.update_progress(downloaded_bytes, total_bytes),
-    );
+    let transfer_result =
+        nova_download_core::download_http_to_path_segmented_controlled_with_context(
+            url,
+            &destination,
+            requested_connections.max(1),
+            request_context,
+            || session.control(),
+            |downloaded_bytes, total_bytes| session.update_progress(downloaded_bytes, total_bytes),
+        );
 
     if let Ok(transfer) = &transfer_result {
         session.update_progress(transfer.final_bytes, transfer.total_bytes);
@@ -838,7 +848,10 @@ mod tests {
             Err(MobileMediaProcessingError::InvalidRelativePath)
         ));
         assert!(matches!(
-            validated_app_private_media_path(Path::new("/app/files"), Path::new("/tmp/outside.mkv")),
+            validated_app_private_media_path(
+                Path::new("/app/files"),
+                Path::new("/tmp/outside.mkv")
+            ),
             Err(MobileMediaProcessingError::InvalidRelativePath)
         ));
     }
