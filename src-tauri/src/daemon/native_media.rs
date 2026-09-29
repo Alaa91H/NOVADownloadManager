@@ -2751,15 +2751,13 @@ where
         Vec::new()
     };
 
-    let mux_container = match output_container {
-        "mp4" | "m4a" | "mkv" | "mka" | "webm" => output_container,
-        _ if mode == MediaSelectionMode::Audio => "mp4",
-        other => {
-            return Err(NativeMediaTaskError::UnsupportedFeature(format!(
-                "multi-period DASH cannot natively remux video to '.{other}'"
-            )));
-        }
-    };
+    let requested_transcode = media_transcoding_requested(
+        options,
+        selected_metadata
+            .first()
+            .map(|metadata| metadata.container.as_str()),
+    )?;
+    let mux_container = dash_period_mux_container(output_container, requested_transcode)?;
 
     for period_index in 0..selected_metadata.len() {
         let selected = &selected_metadata[period_index];
@@ -2879,6 +2877,22 @@ where
             .flatten(),
         audio_codec,
     })
+}
+
+fn dash_period_mux_container(
+    output_container: &str,
+    requested_transcode: bool,
+) -> Result<&str, NativeMediaTaskError> {
+    if requested_transcode {
+        return Ok("mkv");
+    }
+
+    match output_container {
+        "mp4" | "m4a" | "mkv" | "mka" | "webm" => Ok(output_container),
+        other => Err(NativeMediaTaskError::UnsupportedFeature(format!(
+            "multi-period DASH cannot natively remux video to '.{other}'"
+        ))),
+    }
 }
 
 fn ensure_dash_period_metadata_is_stable(
@@ -6166,6 +6180,7 @@ fn parse_quality_height(value: &str) -> Option<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nova_media_core::nova_media_processing_core::MediaDemuxer;
     use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -6302,6 +6317,23 @@ mod tests {
 
         assert!(media_transcoding_requested(Some(&options), None)
             .expect("valid output container policy"));
+    }
+
+    #[test]
+    fn multi_period_dash_uses_matroska_before_requested_post_processing() {
+        assert_eq!(
+            dash_period_mux_container("webm", true).expect("transcode intermediate"),
+            "mkv"
+        );
+        assert_eq!(
+            dash_period_mux_container("mp3", true).expect("audio conversion intermediate"),
+            "mkv"
+        );
+        assert_eq!(
+            dash_period_mux_container("m4a", false).expect("direct audio remux"),
+            "m4a"
+        );
+        assert!(dash_period_mux_container("avi", false).is_err());
     }
 
     #[test]

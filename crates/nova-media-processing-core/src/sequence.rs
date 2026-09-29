@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 
 use crate::{
     MediaDemuxer, MediaPacket, MediaProbe, MediaProcessingError, MediaTimestamp, MediaTrack,
@@ -315,6 +315,23 @@ mod tests {
         }
     }
 
+    fn audio_track(id: u32, codec_private: &[u8]) -> MediaTrack {
+        MediaTrack {
+            id,
+            kind: MediaTrackKind::Audio,
+            codec: MediaCodec::Aac,
+            time_base: MediaTimeBase::new(1, 1000).expect("valid time base"),
+            language: Some("en".to_owned()),
+            video: None,
+            audio: Some(crate::AudioParameters {
+                sample_rate_hz: 48_000,
+                channels: 2,
+                bitrate_bps: None,
+            }),
+            codec_private: codec_private.to_vec(),
+        }
+    }
+
     fn packet(track_id: u32, dts: i64, duration: i64) -> MediaPacket {
         let time_base = MediaTimeBase::new(1, 1000).expect("valid time base");
         MediaPacket {
@@ -357,6 +374,40 @@ mod tests {
         assert_eq!(second.dts.map(|value| value.value), Some(1000));
         assert_eq!(second.pts.map(|value| value.value), Some(1000));
         assert_eq!(demuxer.next_packet().expect("end"), None);
+    }
+
+    #[test]
+    fn sequential_demuxer_maps_reordered_audio_video_track_ids() {
+        let mut demuxer = SequentialMediaDemuxer::new(vec![
+            input(
+                vec![video_track(1, b"avc1"), audio_track(2, b"aac")],
+                vec![packet(1, 0, 1000), packet(2, 0, 1000)],
+            ),
+            input(
+                vec![audio_track(9, b"aac"), video_track(8, b"avc1")],
+                vec![packet(9, 0, 1000), packet(8, 0, 1000)],
+            ),
+        ])
+        .expect("stable audio/video period layouts");
+
+        let packets = std::iter::from_fn(|| {
+            demuxer
+                .next_packet()
+                .expect("read sequential audio/video packet")
+        })
+        .collect::<Vec<_>>();
+        assert_eq!(packets.len(), 4);
+        assert_eq!(packets[0].track_id, 1);
+        assert_eq!(packets[1].track_id, 2);
+        assert_eq!(packets[2].track_id, 2);
+        assert_eq!(packets[3].track_id, 1);
+        assert_eq!(
+            packets
+                .iter()
+                .map(|packet| packet.dts.map(|timestamp| timestamp.value))
+                .collect::<Vec<_>>(),
+            vec![Some(0), Some(0), Some(1000), Some(1000)]
+        );
     }
 
     #[test]

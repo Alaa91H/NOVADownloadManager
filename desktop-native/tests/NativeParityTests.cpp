@@ -1008,7 +1008,7 @@ void NativeParityTests::mediaDownloadHonorsRuntimeCapabilities() {
     QVERIFY(!media.contains(QStringLiteral("ffmpegEnabled")));
     QVERIFY(!media.contains(QStringLiteral("proxy")));
     QCOMPARE(media.value(QStringLiteral("cookies")).toString(), QStringLiteral("sid=blocked"));
-    QVERIFY(!media.contains(QStringLiteral("remuxFormat")));
+    QCOMPARE(media.value(QStringLiteral("remuxFormat")).toString(), QStringLiteral("mp4"));
     QVERIFY(!media.contains(QStringLiteral("sleepIntervalSec")));
 }
 

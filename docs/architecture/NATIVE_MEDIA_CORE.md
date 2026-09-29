@@ -120,6 +120,7 @@ request URL + authorized headers/cookies
 - native manifest tasks integrated with the shared task lifecycle, cancellation generation, queue accounting and persisted snapshots;
 - HLS and DASH quality caps are applied to the selected video variant/representation before segment requests begin;
 - manifest video tasks choose a stable output container from the declared stream container or protocol default, and validate any required single-track remux against the actual parsed container/codecs before staging media segments;
+- static multi-period DASH is joined in a native Matroska intermediate whenever requested codec/container post-processing is needed, then handed to the local codec pipeline; direct period remux remains limited to supported containers and codec layouts;
 - manifest audio-only tasks default to M4A before task naming/path creation, and validate required conversion against the selected manifest rendition before staging;
 - native separate audio/video task execution with parallel track staging, per-track progress and durable completed-track checkpoints;
 - native progressive MP4 multi-track muxing in `nova-media-core`, preserving source codec/sample metadata and interleaving video/audio by decode time without transcoding;

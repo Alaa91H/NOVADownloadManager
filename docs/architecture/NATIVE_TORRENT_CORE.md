@@ -260,7 +260,7 @@ IPv6 KRPC parsing/discovery remains supported, but Stage 10 intentionally
 advertised only the IPv4 listener while the cross-platform dual-stack lifecycle
 was still being hardened.
 
-### Stage 11 — dual-stack DHT and live swarm telemetry — complete
+### Stage 11 — dual-stack DHT, seed listeners and live swarm telemetry — complete
 
 The process-wide DHT runtime now owns independent long-lived IPv4 and IPv6 UDP
 sockets. IPv4 continues to prefer the configured BitTorrent DHT port. IPv6
@@ -275,10 +275,13 @@ Shared KRPC transport is family-aware: IPv4 destinations use the IPv4 listener
 and IPv6 destinations use the IPv6 listener, while both feed the same stable
 node ID, transaction demultiplexer, routing table, token rotation, peer store,
 and persistent state. If one socket worker exits, only that family is detached
-and marked inactive; the other DHT family continues serving. IPv6
-`announce_peer` for NOVA itself remains intentionally disabled because the
-inbound TCP seed listener is still IPv4-only; advertising an unreachable IPv6
-peer endpoint would be incorrect.
+and marked inactive; the other DHT family continues serving.
+
+The inbound seeding service independently attempts IPv4 and IPv6 TCP listeners.
+IPv6 DHT announcements use the bound IPv6 seed port only while both IPv6
+listeners are active. If the host cannot bind IPv6, IPv4 discovery and seeding
+remain active, and the runtime reports IPv6 inbound seeding and peer announce as
+unavailable instead of advertising an unreachable endpoint.
 
 Each torrent job now also owns an ephemeral bounded swarm telemetry store. It
 keeps at most 256 peer rows and 64 tracker rows and is never persisted. Outbound
@@ -297,14 +300,14 @@ completed-download dialogs.
 
 ### Remaining advanced swarm work
 
-The native torrent download, seeding, dual-stack DHT node service and live
-swarm observability paths are operational. The main advanced networking work
-remaining is:
+The native torrent download, dual-stack seeding and DHT node service, and live
+swarm observability paths are operational. The remaining advanced networking
+work is:
 
-- dual-stack inbound TCP peer/seeding listener and IPv6 DHT peer announcements;
 - deeper per-peer live state such as choke/interest, availability and rolling
   transfer-rate samples when those metrics can be exposed without hot-path
-  contention.
+  contention. IPv6 support remains conditional on the host's ability to bind
+  its family-specific listener; unavailable IPv6 paths are not advertised.
 
 ## Quality gates
 
@@ -327,5 +330,5 @@ public-torrent DHT re-announcing, and bounded live peer/tracker telemetry now
 report supported. The DHT announce lifecycle is tied to the same seed
 cancellation token as tracker/upload serving, so pause, removal, configured
 seed limits, and daemon shutdown stop DHT advertising as well. IPv6 DHT peer
-announcements remain explicitly false until the TCP seed listener itself is
-dual-stack.
+announcements are enabled only while both the IPv6 UDP DHT socket and IPv6 TCP
+seed listener are active; capability reporting follows those live bindings.

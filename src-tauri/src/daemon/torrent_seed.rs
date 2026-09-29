@@ -1065,6 +1065,96 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn ipv6_inbound_seed_listener_serves_verified_requested_block_when_available() {
+        let Ok(probe_listener) = TcpListener::bind((Ipv6Addr::LOCALHOST, 0)).await else {
+            return;
+        };
+        drop(probe_listener);
+
+        let Some(listener) = bind_ipv6_seed_listener(0).await else {
+            return;
+        };
+        let listen_address = listener.local_addr().unwrap();
+        let root = temp_root("ipv6-verified");
+        let meta = metainfo();
+        let storage = TorrentStorageSession::create(
+            root.clone(),
+            meta.clone(),
+            TorrentSelection::all(&meta),
+            AllocationMode::Sparse,
+        )
+        .await
+        .unwrap();
+        let lease = storage.begin_run().await.unwrap();
+        storage
+            .commit_piece(&lease, 0, b"abcdefgh".to_vec())
+            .await
+            .unwrap();
+
+        let server_storage = storage.clone();
+        let info_hash = meta.info_hash;
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            serve_inbound_seed_session(
+                stream,
+                info_hash,
+                server_storage,
+                *b"-NV0001-SEEDSERVER01",
+                test_config(),
+                &CancellationToken::new(),
+            )
+            .await
+        });
+
+        let client_address = std::net::SocketAddr::new(
+            std::net::IpAddr::V6(Ipv6Addr::LOCALHOST),
+            listen_address.port(),
+        );
+        let mut client = TcpStream::connect(client_address).await.unwrap();
+        client
+            .write_all(&PeerHandshake::new(info_hash, *b"-NVTEST-SEEDCLIENT01").encode())
+            .await
+            .unwrap();
+
+        let mut handshake = [0u8; PEER_HANDSHAKE_LEN];
+        client.read_exact(&mut handshake).await.unwrap();
+        assert_eq!(PeerHandshake::decode(&handshake).unwrap().info_hash, info_hash);
+        assert_eq!(
+            read_test_message(&mut client).await,
+            PeerMessage::Bitfield(vec![0x80])
+        );
+        client
+            .write_all(&PeerMessage::Interested.encode().unwrap())
+            .await
+            .unwrap();
+        assert_eq!(read_test_message(&mut client).await, PeerMessage::Unchoke);
+        client
+            .write_all(
+                &PeerMessage::Request {
+                    piece_index: 0,
+                    begin: 2,
+                    length: 4,
+                }
+                .encode()
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            read_test_message(&mut client).await,
+            PeerMessage::Piece {
+                piece_index: 0,
+                begin: 2,
+                block: b"cdef".to_vec(),
+            }
+        );
+
+        drop(client);
+        assert!(server.await.unwrap().is_err());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
     async fn inbound_seed_session_rejects_unverified_piece_request() {
         let root = temp_root("unverified");
         let meta = metainfo();
