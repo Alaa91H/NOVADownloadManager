@@ -816,36 +816,43 @@ fn media_mux_output_extension(container: &str) -> Option<&'static str> {
     }
 }
 
-fn mux_mobile_media_tracks(
-    task_id: &str,
-    video_path: &std::path::Path,
-    audio_path: &std::path::Path,
-    video_container: &str,
-    audio_container: &str,
+struct MobileMediaMuxRequest<'a> {
+    task_id: &'a str,
+    video_path: &'a std::path::Path,
+    audio_path: &'a std::path::Path,
+    video_container: &'a str,
+    audio_container: &'a str,
     video_codec: Option<String>,
     audio_codec: Option<String>,
-    output_container: &str,
-    staging_dir: &std::path::Path,
-    destination: &std::path::Path,
+    output_container: &'a str,
+    staging_dir: &'a std::path::Path,
+    destination: &'a std::path::Path,
+}
+
+fn mux_mobile_media_tracks(
+    request: MobileMediaMuxRequest<'_>,
     session: &nova_mobile_core::MobileTransferSession,
 ) -> Result<u64, MediaDownloadError> {
     check_mobile_media_control(session)?;
-    let output_extension = media_mux_output_extension(output_container).ok_or_else(|| {
+    let output_extension = media_mux_output_extension(request.output_container).ok_or_else(|| {
         MediaDownloadError::DownloadFailed {
             message: format!(
-                "separate audio/video streams require a native muxer for .{output_container}"
+                "separate audio/video streams require a native muxer for .{}",
+                request.output_container
             ),
         }
     })?;
-    let muxed = staging_dir.join(format!("muxed-{task_id}.{output_extension}"));
+    let muxed = request
+        .staging_dir
+        .join(format!("muxed-{}.{output_extension}", request.task_id));
     let job = nova_media_processing_core::NativeMediaMuxJob {
-        video_source: video_path.to_owned(),
-        audio_source: audio_path.to_owned(),
+        video_source: request.video_path.to_owned(),
+        audio_source: request.audio_path.to_owned(),
         destination: muxed.clone(),
-        video_container: video_container.to_owned(),
-        audio_container: audio_container.to_owned(),
-        video_codec,
-        audio_codec,
+        video_container: request.video_container.to_owned(),
+        audio_container: request.audio_container.to_owned(),
+        video_codec: request.video_codec,
+        audio_codec: request.audio_codec,
     };
     let control = || match session.control() {
         nova_download_core::TransferControl::Continue => {
@@ -870,7 +877,7 @@ fn mux_mobile_media_tracks(
             },
         },
     )?;
-    publish_mobile_media_output(&muxed, destination)
+    publish_mobile_media_output(&muxed, request.destination)
 }
 
 fn download_native_manifest_stream(
@@ -917,7 +924,7 @@ fn download_native_manifest_stream(
     };
     session.finish();
 
-    if matches!(result, Ok(_)) || matches!(result, Err(MediaDownloadError::Cancelled)) {
+    if result.is_ok() || matches!(result, Err(MediaDownloadError::Cancelled)) {
         let _ = nova_mobile_core::discard_app_private_media_staging_dir(root, &request.task_id);
     }
     result.map(|final_bytes| MobileMediaDownloadResult {
@@ -1110,16 +1117,18 @@ fn download_native_hls_stream(
         .trim()
         .trim_start_matches('.');
     let final_bytes = mux_mobile_media_tracks(
-        &request.task_id,
-        &video_path,
-        &audio_path,
-        &video_container,
-        &audio_container,
-        video_codec.cloned(),
-        audio_codec.cloned(),
-        output_container,
-        staging_dir,
-        destination,
+        MobileMediaMuxRequest {
+            task_id: &request.task_id,
+            video_path: &video_path,
+            audio_path: &audio_path,
+            video_container: &video_container,
+            audio_container: &audio_container,
+            video_codec: video_codec.cloned(),
+            audio_codec: audio_codec.cloned(),
+            output_container,
+            staging_dir,
+            destination,
+        },
         session,
     )?;
     let _staged_track_bytes = video_bytes.saturating_add(audio_bytes);
@@ -1316,16 +1325,18 @@ fn download_native_dash_stream(
             Some((video_path, video_container, video_codec)),
             Some((audio_path, audio_container, audio_codec)),
         ) => mux_mobile_media_tracks(
-            &request.task_id,
-            &video_path,
-            &audio_path,
-            &video_container,
-            &audio_container,
-            video_codec,
-            audio_codec,
-            &request.output_container,
-            staging_dir,
-            destination,
+            MobileMediaMuxRequest {
+                task_id: &request.task_id,
+                video_path: &video_path,
+                audio_path: &audio_path,
+                video_container: &video_container,
+                audio_container: &audio_container,
+                video_codec,
+                audio_codec,
+                output_container: &request.output_container,
+                staging_dir,
+                destination,
+            },
             session,
         ),
         (Some((path, _, _)), None) | (None, Some((path, _, _))) => {
