@@ -542,7 +542,7 @@ pub async fn handle_create_download(
     }
 }
 
-pub async fn handle_create_native_media_playlist(
+async fn handle_create_native_media_playlist(
     State(state): State<SharedState>,
     Json(body): Json<CreateNativeMediaPlaylistBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {

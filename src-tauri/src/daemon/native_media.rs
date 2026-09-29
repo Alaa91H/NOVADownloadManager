@@ -175,7 +175,6 @@ impl std::error::Error for NativeMediaTaskError {}
 #[derive(Debug)]
 struct ResolvedDirectMedia {
     url: String,
-    title: String,
     kind: nova_media_core::MediaTrackKind,
     container: Option<String>,
     video_codec: Option<String>,
@@ -5246,7 +5245,6 @@ fn resolved_from_descriptor(
                 .map_err(|error| NativeMediaTaskError::InvalidRequest(error.to_string()))?;
             Ok(ResolvedNativeMedia::Direct(ResolvedDirectMedia {
                 url: stream.url.clone(),
-                title: descriptor.metadata.title.clone(),
                 kind: stream.kind,
                 container: stream.container.clone(),
                 video_codec: stream.video_codec.clone(),

@@ -484,7 +484,9 @@
             "keepaliveTimeSec",
             "httpVersion",
             "tlsMin",
-            "ffmpegPath",
+            "videoQuality",
+            "downloadSubtitles",
+            "subtitleLanguage",
             "telegramConfig",
             "shortcutBindings",
             "exportBackup",
@@ -893,7 +895,7 @@
         {
           "file": "desktop-native/qml/components/BrowserCaptureReviewDialog.qml",
           "allOf": [
-            "root.isMagnet",
+            "readonly property bool isMagnet",
             "root.isTorrent",
             "destinationDirectory",
             "torrentNote"
