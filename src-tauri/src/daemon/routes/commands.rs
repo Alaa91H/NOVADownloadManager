@@ -17,6 +17,8 @@ use nova_core_model::{
 };
 use serde::Serialize;
 use serde_json::Value;
+use std::future::Future;
+use std::pin::Pin;
 
 pub fn register_routes(router: Router<SharedState>) -> Router<SharedState> {
     router
@@ -27,31 +29,33 @@ pub fn register_routes(router: Router<SharedState>) -> Router<SharedState> {
 /// Route legacy and in-process clients through the same command validation and
 /// permission boundary. A caller-supplied key is honored when available;
 /// otherwise a unique key preserves legacy behavior without false replays.
-pub(crate) async fn execute_legacy(
-    state: &SharedState,
+pub(crate) fn execute_legacy<'a>(
+    state: &'a SharedState,
     command: ControlCommand,
     idempotency_key: Option<String>,
-) -> Result<Value, StructuredError> {
-    let request_id = uuid::Uuid::new_v4().to_string();
-    let envelope = CommandEnvelope {
-        contract_version: CONTROL_PLANE_CONTRACT_VERSION,
-        request_id: request_id.clone(),
-        idempotency_key: idempotency_key.unwrap_or_else(|| format!("legacy-{request_id}")),
-        command,
-    };
-    let command_state = state.clone();
-    let principal = Principal::local_admin();
-    state
-        .command_bus
-        .execute(&principal, envelope, move |command| async move {
-            let result = execute_command(command_state.clone(), command).await;
-            if result.is_ok() {
-                command_state.mark_dirty();
-            }
-            result
-        })
-        .await
-        .map(|receipt| receipt.result)
+) -> Pin<Box<dyn Future<Output = Result<Value, StructuredError>> + Send + 'a>> {
+    Box::pin(async move {
+        let request_id = uuid::Uuid::new_v4().to_string();
+        let envelope = CommandEnvelope {
+            contract_version: CONTROL_PLANE_CONTRACT_VERSION,
+            request_id: request_id.clone(),
+            idempotency_key: idempotency_key.unwrap_or_else(|| format!("legacy-{request_id}")),
+            command,
+        };
+        let command_state = state.clone();
+        let principal = Principal::local_admin();
+        state
+            .command_bus
+            .execute(&principal, envelope, move |command| async move {
+                let result = execute_command(command_state.clone(), command).await;
+                if result.is_ok() {
+                    command_state.mark_dirty();
+                }
+                result
+            })
+            .await
+            .map(|receipt| receipt.result)
+    })
 }
 
 pub(crate) async fn query_legacy(
