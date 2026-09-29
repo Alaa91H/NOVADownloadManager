@@ -1391,7 +1391,8 @@ void NativeParityTests::queueCatalogManagementIsDaemonBacked() {
             const QJsonArray taskIds = command.value(QStringLiteral("taskIds")).toArray();
             sawTaskReorder = taskIds == QJsonArray{QStringLiteral("task-2"), QStringLiteral("task-1")};
         } else if (commandType == QStringLiteral("moveTask")) {
-            sawMove = command.value(QStringLiteral("taskId")).toString() == QStringLiteral("task-1");
+            sawMove = sawMove
+                || command.value(QStringLiteral("taskId")).toString() == QStringLiteral("task-1");
         } else if (commandType == QStringLiteral("deleteQueue")) {
             sawDelete = command.value(QStringLiteral("queueId")).toString() == QStringLiteral("archive");
         }
