@@ -1270,7 +1270,6 @@ fn manifest_stream(
     _request_headers: &BTreeMap<String, String>,
 ) -> MediaStream {
     // Keep manifest auth in the descriptor request context for origin checks.
-    let _ = request_headers;
     MediaStream {
         id: id.to_owned(),
         kind: MediaTrackKind::AudioVideo,
