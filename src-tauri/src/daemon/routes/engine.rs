@@ -54,34 +54,46 @@ pub(super) fn bool_from_status(status: &serde_json::Value, pointer: &str) -> boo
         .unwrap_or(false)
 }
 
+fn runtime_capability_supported(status: &serde_json::Value, capability_id: &str) -> bool {
+    status
+        .pointer("/capabilityRegistry/entries")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .any(|entry| {
+            entry.get("id").and_then(serde_json::Value::as_str) == Some(capability_id)
+                && entry.get("status").and_then(serde_json::Value::as_str) == Some("supported")
+        })
+}
+
+fn control_command_supported(status: &serde_json::Value, command_id: &str) -> bool {
+    status
+        .pointer("/controlPlane/commandCapabilities")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .any(|command| {
+            command.get("id").and_then(serde_json::Value::as_str) == Some(command_id)
+                && command.get("status").and_then(serde_json::Value::as_str) == Some("supported")
+        })
+}
+
 pub(super) fn extension_capabilities_from_status(status: &serde_json::Value) -> serde_json::Value {
-    let direct_ready = bool_from_status(status, "/directReady");
-    let media_ready = bool_from_status(status, "/mediaExtractionReady");
-    let streaming_ready = bool_from_status(status, "/streamingReady");
+    let direct_ready = runtime_capability_supported(status, "download.direct")
+        && control_command_supported(status, "addDownload");
+    let media_ready = runtime_capability_supported(status, "media.extraction")
+        && control_command_supported(status, "addMediaDownload");
     let post_ready = bool_from_status(status, "/postProcessingReady");
-    let torrent_magnet_ready = bool_from_status(status, "/engines/torrent/available")
-        && bool_from_status(status, "/engines/torrent/capabilities/magnetResolver")
-        && bool_from_status(
-            status,
-            "/engines/torrent/capabilities/torrentTaskLifecycleApi",
-        );
-    let torrent_file_ready = bool_from_status(status, "/engines/torrent/available")
-        && bool_from_status(
-            status,
-            "/engines/torrent/capabilities/torrentMetainfoUrlFetch",
-        )
-        && bool_from_status(
-            status,
-            "/engines/torrent/capabilities/torrentTaskLifecycleApi",
-        );
-    let hls_ready =
-        streaming_ready && bool_from_status(status, "/engines/media/capabilities/hlsTaskExecution");
-    let dash_ready = streaming_ready
-        && bool_from_status(status, "/engines/media/capabilities/dashTaskExecution");
-    let subtitle_ready =
-        media_ready && bool_from_status(status, "/engines/media/capabilities/subtitles");
-    let audio_ready =
-        media_ready && bool_from_status(status, "/engines/media/capabilities/audioExtraction");
+    let torrent_magnet_ready = runtime_capability_supported(status, "torrent.core")
+        && runtime_capability_supported(status, "torrent.magnet")
+        && control_command_supported(status, "addTorrent");
+    let torrent_file_ready = runtime_capability_supported(status, "torrent.core")
+        && runtime_capability_supported(status, "torrent.file")
+        && control_command_supported(status, "addTorrent");
+    let hls_ready = runtime_capability_supported(status, "media.hls");
+    let dash_ready = runtime_capability_supported(status, "media.dash");
+    let subtitle_ready = runtime_capability_supported(status, "media.subtitles");
+    let audio_ready = runtime_capability_supported(status, "media.audioTracks");
     let mut items = Vec::new();
     if direct_ready {
         items.push("candidate.directUrl");
@@ -159,7 +171,7 @@ pub(super) fn extension_capabilities_from_status(status: &serde_json::Value) -> 
         "unsupportedCandidateMediaTypes": unsupported_candidate_types,
         "torrentMagnetReady": torrent_magnet_ready,
         "torrentMetainfoUrlReady": torrent_file_ready,
-        "sourceOfTruth": "daemon-runtime-linked-libcurl-and-engine-probes"
+        "sourceOfTruth": "rust-runtime-capability-registry"
     })
 }
 

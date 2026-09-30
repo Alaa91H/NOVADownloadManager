@@ -156,6 +156,8 @@ public:
     Q_INVOKABLE void setQueuePriority(const QString &taskId, int priority);
     Q_INVOKABLE bool directOptionSupported(const QString &key) const;
     Q_INVOKABLE bool mediaOptionSupported(const QString &key) const;
+    Q_INVOKABLE QString runtimeCapabilityStatus(const QString &capabilityId) const;
+    Q_INVOKABLE bool runtimeCapabilitySupported(const QString &capabilityId) const;
     Q_INVOKABLE QString controlPlaneCapabilityStatus(const QString &capabilityId) const;
     Q_INVOKABLE bool controlPlaneCommandSupported(const QString &capabilityId) const;
 

@@ -210,6 +210,28 @@ QString NovaApiClient::controlPlaneCapabilityStatus(const QString &capabilityId)
     return QStringLiteral("unavailable");
 }
 
+QString NovaApiClient::runtimeCapabilityStatus(const QString &capabilityId) const {
+    const QString requestedId = capabilityId.trimmed();
+    if (requestedId.isEmpty()) {
+        return QStringLiteral("unavailable");
+    }
+
+    const QVariantMap registry =
+        m_engineCapabilities.value(QStringLiteral("capabilityRegistry")).toMap();
+    for (const QVariant &entryValue : registry.value(QStringLiteral("entries")).toList()) {
+        const QVariantMap entry = entryValue.toMap();
+        if (entry.value(QStringLiteral("id")).toString() == requestedId) {
+            const QString status = entry.value(QStringLiteral("status")).toString();
+            return status.isEmpty() ? QStringLiteral("unavailable") : status;
+        }
+    }
+    return QStringLiteral("unavailable");
+}
+
+bool NovaApiClient::runtimeCapabilitySupported(const QString &capabilityId) const {
+    return runtimeCapabilityStatus(capabilityId) == QStringLiteral("supported");
+}
+
 bool NovaApiClient::controlPlaneCommandSupported(const QString &capabilityId) const {
     return controlPlaneCapabilityStatus(capabilityId) == QStringLiteral("supported");
 }

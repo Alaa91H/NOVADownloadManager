@@ -24,6 +24,13 @@ Item {
         return i18n.translate(key)
     }
 
+    function capabilitySupported(id) {
+        const snapshot = root.capabilitySnapshot || ({})
+        if (!snapshot.capabilityRegistry)
+            return false
+        return api.runtimeCapabilitySupported(id)
+    }
+
     function urlLooksLikePlaylist(value) {
         return /[?&]list=[^&]+/.test(String(value || ""))
     }
@@ -79,6 +86,9 @@ Item {
 
     function outputContainerOptions(track) {
         const options = [{ label: root.t("media.sourceFormat"), value: "auto" }]
+        const capabilityId = track === "video" ? "media.videoTranscode" : "media.audioTranscode"
+        if (!root.capabilitySupported("media.nativeMux") || !root.capabilitySupported(capabilityId))
+            return options
         const engines = api.engineCapabilities.engines || ({})
         const media = engines.media || ({})
         const capabilities = media.capabilities || ({})
@@ -98,6 +108,9 @@ Item {
     function encoderOptions(track, container) {
         const options = [{ label: root.t("media.streamCopy"), value: "copy" }]
         if (String(container || "auto") === "auto")
+            return options
+        const capabilityId = track === "video" ? "media.videoTranscode" : "media.audioTranscode"
+        if (!root.capabilitySupported("media.nativeMux") || !root.capabilitySupported(capabilityId))
             return options
         const engines = api.engineCapabilities.engines || ({})
         const media = engines.media || ({})
@@ -128,6 +141,8 @@ Item {
     }
 
     function localCodecAvailable() {
+        if (!root.capabilitySupported("media.nativeCodecs"))
+            return false
         const engines = api.engineCapabilities.engines || ({})
         const media = engines.media || ({})
         const capabilities = media.capabilities || ({})
@@ -139,6 +154,8 @@ Item {
     }
 
     function localSubtitleContainerAvailable(container) {
+        if (!root.capabilitySupported("media.subtitleEmbedding"))
+            return false
         const engines = api.engineCapabilities.engines || ({})
         const media = engines.media || ({})
         const capabilities = media.capabilities || ({})
@@ -258,7 +275,7 @@ Item {
             errorText = root.t("media.noPlaylistSelection")
             return
         }
-        if (api.engineCapabilities.mediaExtractionReady !== true) {
+        if (!root.capabilitySupported("media.extraction")) {
             errorText = root.t("media.engineUnavailable")
             return
         }
@@ -586,7 +603,7 @@ Item {
                                     id: modeBox
                                     Layout.fillWidth: true
                                     Accessible.name: root.t("media.mode")
-                                    enabled: api.engineCapabilities.mediaExtractionReady === true
+                                    enabled: root.capabilitySupported("media.extraction")
                                     model: [root.t("media.videoAudio"), root.t("media.audioOnly")]
                                 }
                             }
@@ -1341,7 +1358,7 @@ Item {
             Button {
                 text: root.t("media.start")
                 enabled: api.connected
-                    && api.engineCapabilities.mediaExtractionReady === true
+                    && root.capabilitySupported("media.extraction")
                     && api.controlPlaneCommandSupported(playlistMode ? "addMediaPlaylist" : "addMediaDownload")
                     && !api.mediaProbeBusy
                     && !api.mediaPlaylistBusy

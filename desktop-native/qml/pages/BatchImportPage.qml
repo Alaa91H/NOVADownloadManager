@@ -26,6 +26,13 @@ Item {
         return i18n.translate(key)
     }
 
+    function capabilitySupported(id) {
+        const snapshot = root.capabilitySnapshot || ({})
+        if (!snapshot.capabilityRegistry)
+            return false
+        return api.runtimeCapabilitySupported(id)
+    }
+
     function supportsDirect(key) {
         const snapshot = root.capabilitySnapshot
         return api.directOptionSupported(key)
@@ -471,7 +478,7 @@ Item {
             Button {
                 text: api.batchRunning ? root.t("batch.importing") : root.t("batch.import")
                 enabled: api.connected
-                    && api.engineCapabilities.directReady === true
+                    && root.capabilitySupported("download.direct")
                     && !api.batchRunning
                     && linksInput.text.trim().length > 0
                     && !batchPreview.preview.overflow

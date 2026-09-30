@@ -1,6 +1,53 @@
 {
   "contractVersion": 1,
   "capabilityRegistryVersion": 2,
+  "capabilityRegistrySchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "required": ["schemaVersion", "sourceOfTruth", "entries"],
+    "properties": {
+      "schemaVersion": { "const": 2 },
+      "sourceOfTruth": { "const": "rust-runtime" },
+      "entries": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": [
+            "id",
+            "version",
+            "status",
+            "platforms",
+            "clientAdapters",
+            "operations",
+            "events",
+            "constraints",
+            "evidence"
+          ],
+          "properties": {
+            "id": { "type": "string", "minLength": 1 },
+            "version": { "type": "integer", "minimum": 1 },
+            "status": {
+              "enum": ["supported", "unavailable", "experimental", "platformRestricted"]
+            },
+            "platforms": { "type": "array", "items": { "type": "string" } },
+            "clientAdapters": {
+              "type": "object",
+              "additionalProperties": {
+                "enum": ["supported", "unavailable", "experimental", "platformRestricted"]
+              }
+            },
+            "operations": { "type": "array", "items": { "type": "string" } },
+            "events": { "type": "array", "items": { "type": "string" } },
+            "constraints": { "type": "object" },
+            "reason": { "type": "string" },
+            "evidence": { "type": "array", "items": { "type": "string" } }
+          },
+          "additionalProperties": true
+        }
+      }
+    },
+    "additionalProperties": true
+  },
   "taskLifecycle": {
     "states": [
       "queued",

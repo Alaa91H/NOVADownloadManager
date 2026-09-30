@@ -14,7 +14,7 @@
 
 هذه الخطة ما زالت **قيد التنفيذ**؛ الحالات التالية تصف العمل الموجود في الشجرة ولا تعني اجتياز التحقق أو اكتمال parity:
 
-- **متابعة CP-01:** أضاف daemon سجل capabilityRegistry موحدًا بإصدار 2 يبنيه من حالات libcurl ومحرك الوسائط والتورنت وأوامر التحكم الفعلية، ويضم المنصة والقيود والسبب والعمليات والأحداث ومراجع المصدر. يتحقق browser-extension من العقد، ويعيد Android FFI السجل نفسه بصياغة build-specific ويستهلكه MediaViewModel لمنع خيارات التحويل غير المتاحة. تبقى clientAdapters فارغة حتى توثيق parity بالأدلة، وتظل CP-01 جزئية.
+- **متابعة CP-01:** أضاف daemon سجل capabilityRegistry موحدًا بإصدار 2 بعقد JSON Schema مشتق من حالات libcurl ومحرك الوسائط والتورنت وأوامر التحكم الفعلية، ويضم المنصة والقيود والسبب والعمليات والأحداث ومراجع المصدر. يتحقق browser-extension من العقد ويحوّل حالات direct/media/streaming/torrent إلى خياراتها؛ ويعيد Android FFI مجموعة المعرفات نفسها بحالات build-specific ويستهلكها MediaViewModel لمنع خيارات التحويل غير المتاحة؛ وتستخدم QML السجل لمنع خيارات media/batch غير المدعومة. تبقى clientAdapters فارغة حتى توثيق parity بالأدلة، وتظل CP-01 جزئية.
 
 - **CP-01 جزئي:** Runtime يعلن Control Plane command/query capabilities، وسجل media native مأخوذ من قدرات codecs المبنية. يوجد manifest وفاحص CI يمنعان إضافة command/query/event غير مسجل أو وسمه `complete` بلا تغطية العملاء وأدلة اختبارات العقود.
 - **CP-02 جزئي:** عقود v1 وCommand Bus وpermission scopes وidempotency داخل العملية وbest-effort batch موجودة. لا يزال RBAC/scoped-token store غير منفذ، وatomic batch غير متاح.

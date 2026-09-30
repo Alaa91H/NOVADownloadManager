@@ -143,6 +143,8 @@ pub fn build_runtime_capability_registry(
     let torrent_ready = bool_at(torrent, "/available");
     let hls_ready = media_ready && bool_at(media, "/capabilities/hlsTaskExecution");
     let dash_ready = media_ready && bool_at(media, "/capabilities/dashTaskExecution");
+    let audio_tracks_ready = media_ready && bool_at(media, "/capabilities/audioExtraction");
+    let subtitles_ready = media_ready && bool_at(media, "/capabilities/subtitles");
     let segmented_ready = direct_ready && bool_at(curl, "/libcurlMulti/segmentedDownloads");
     let resume_ready = direct_ready && bool_at(curl, "/capabilities/resume");
     let audio_transcode_ready = media_ready && bool_at(media, "/capabilities/audioTranscoding");
@@ -163,6 +165,8 @@ pub fn build_runtime_capability_registry(
     let custom_dns_ready = supports_option(curl, "dnsServers");
     let magnet_ready = torrent_ready && bool_at(torrent, "/capabilities/magnetResolver");
     let dht_ready = torrent_ready && bool_at(torrent, "/capabilities/dht");
+    let torrent_file_ready =
+        torrent_ready && bool_at(torrent, "/capabilities/torrentMetainfoUrlFetch");
     let direct_protocols = value_at(curl, "/protocols");
     let proxy_options = strings_at(curl, "/supportedDirectOptionKeys")
         .into_iter()
@@ -311,6 +315,24 @@ pub fn build_runtime_capability_registry(
             json!({"dynamic": value_at(media, "/capabilities/dashDynamicTaskExecution")}),
         ),
         entry(
+            "media.audioTracks",
+            audio_tracks_ready,
+            Some("Native audio-track discovery is unavailable in this runtime.".to_owned()),
+            "engines.media.capabilities.audioExtraction",
+            &["probe", "select", "download"],
+            &["download.started", "download.completed", "download.failed"],
+            json!({"selection": "source-representation"}),
+        ),
+        entry(
+            "media.subtitles",
+            subtitles_ready,
+            Some("Native subtitle discovery is unavailable in this runtime.".to_owned()),
+            "engines.media.capabilities.subtitles",
+            &["probe", "select", "download"],
+            &["download.started", "download.completed", "download.failed"],
+            json!({"automaticTracks": value_at(media, "/capabilities/autoSubtitles")}),
+        ),
+        entry(
             "media.nativeCodecs",
             media_ready && native_codec_registry_ready,
             Some("The in-process codec registry is unavailable in this build.".to_owned()),
@@ -376,6 +398,15 @@ pub fn build_runtime_capability_registry(
                 "download.failed",
             ],
             json!({"engine": value_at(torrent, "/runtimeCore"), "capabilities": torrent_capabilities}),
+        ),
+        entry(
+            "torrent.file",
+            torrent_file_ready,
+            Some("Native .torrent metainfo fetching is unavailable in this runtime.".to_owned()),
+            "engines.torrent.capabilities.torrentMetainfoUrlFetch",
+            &["fetchMetainfo", "add"],
+            &["download.started", "download.failed"],
+            json!({"httpUrlFetch": value_at(torrent, "/capabilities/torrentMetainfoUrlFetch")}),
         ),
         entry(
             "torrent.magnet",
