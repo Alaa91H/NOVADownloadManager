@@ -16,7 +16,8 @@
       "deleteTask", "moveTask", "setTaskPriority", "startQueue", "createQueue",
       "updateQueue", "deleteQueue", "reorderQueues", "reorderQueueTasks", "stopQueue",
       "setActiveProfile", "addSchedule", "updateSchedule", "deleteSchedule",
-      "setSchedulerPowerCommands", "batch.bestEffort"
+      "setSchedulerPowerCommands", "storeCredential", "deleteCredential",
+      "batch.bestEffort"
     ],
     "android": [],
     "cli": [

@@ -2466,6 +2466,83 @@ void NovaApiClient::refreshSettingsServices() {
     refreshTelegramConfig();
 }
 
+void NovaApiClient::storeCredential(const QString &credentialIdText, const QString &secret) {
+    const QString credentialId = credentialIdText.trimmed();
+    if (credentialId.isEmpty() || secret.isEmpty()) {
+        emit requestFailed(QStringLiteral("Enter a credential ID and secret."));
+        return;
+    }
+    if (!controlPlaneCommandSupported(QStringLiteral("storeCredential"))) {
+        emit requestFailed(QStringLiteral("Credential storage is unavailable in this Runtime."));
+        return;
+    }
+
+    auto *reply = postControlCommand(
+        QStringLiteral("storeCredential"),
+        QJsonObject{
+            {QStringLiteral("credentialId"), credentialId},
+            {QStringLiteral("secret"), secret},
+        }
+    );
+    connect(reply, &QNetworkReply::finished, this, [this, reply, credentialId]() {
+        const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
+        const QByteArray payload = reply->readAll();
+        if (reply->error() != QNetworkReply::NoError) {
+            emit requestFailed(responseErrorMessage(reply, payload));
+            return;
+        }
+
+        const QJsonDocument document = QJsonDocument::fromJson(payload);
+        const QJsonObject result = document.isObject()
+            ? controlResultObject(document.object())
+            : QJsonObject{};
+        if (!result.value(QStringLiteral("ok")).toBool()) {
+            emit requestFailed(QStringLiteral("Credential storage returned an invalid response."));
+            return;
+        }
+        emit credentialActionCompleted(QStringLiteral("store"), credentialId, true);
+    });
+}
+
+void NovaApiClient::deleteCredential(const QString &credentialIdText) {
+    const QString credentialId = credentialIdText.trimmed();
+    if (credentialId.isEmpty()) {
+        emit requestFailed(QStringLiteral("Enter a credential ID."));
+        return;
+    }
+    if (!controlPlaneCommandSupported(QStringLiteral("deleteCredential"))) {
+        emit requestFailed(QStringLiteral("Credential storage is unavailable in this Runtime."));
+        return;
+    }
+
+    auto *reply = postControlCommand(
+        QStringLiteral("deleteCredential"),
+        QJsonObject{{QStringLiteral("credentialId"), credentialId}}
+    );
+    connect(reply, &QNetworkReply::finished, this, [this, reply, credentialId]() {
+        const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
+        const QByteArray payload = reply->readAll();
+        if (reply->error() != QNetworkReply::NoError) {
+            emit requestFailed(responseErrorMessage(reply, payload));
+            return;
+        }
+
+        const QJsonDocument document = QJsonDocument::fromJson(payload);
+        const QJsonObject result = document.isObject()
+            ? controlResultObject(document.object())
+            : QJsonObject{};
+        if (!result.value(QStringLiteral("ok")).toBool()) {
+            emit requestFailed(QStringLiteral("Credential storage returned an invalid response."));
+            return;
+        }
+        emit credentialActionCompleted(
+            QStringLiteral("delete"),
+            credentialId,
+            result.value(QStringLiteral("removed")).toBool()
+        );
+    });
+}
+
 void NovaApiClient::refreshExternalTools() {
     auto *reply = m_network.get(makeRequest(QStringLiteral("/api/external-tools")));
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {

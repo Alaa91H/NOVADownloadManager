@@ -53,6 +53,15 @@ ScrollView {
                 root.showNotice(root.t("settings.telegramSaved"), false)
         }
 
+        function onCredentialActionCompleted(action, credentialId, removed) {
+            if (action === "store")
+                root.showNotice(root.t("settings.credentialStored"), false)
+            else if (removed)
+                root.showNotice(root.t("settings.credentialDeleted"), false)
+            else
+                root.showNotice(root.t("settings.credentialNotFound"), false)
+        }
+
         function onRequestFailed(message) {
             if (root.visible)
                 root.showNotice(message, true)
@@ -87,6 +96,98 @@ ScrollView {
                 color: root.noticeError ? Theme.danger : Theme.success
                 font.pixelSize: Theme.fontSmall
                 wrapMode: Text.WordWrap
+            }
+        }
+
+        Rectangle {
+            Layout.fillWidth: true
+            implicitHeight: credentialColumn.implicitHeight + 28
+            radius: Theme.radiusMedium
+            color: Theme.surface
+            border.color: Theme.border
+
+            ColumnLayout {
+                id: credentialColumn
+                anchors.fill: parent
+                anchors.margins: 14
+                spacing: 10
+
+                Text {
+                    text: root.t("settings.credentials")
+                    color: Theme.textPrimary
+                    font.pixelSize: Theme.fontBody
+                    font.weight: Font.DemiBold
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    text: root.t("settings.credentialHint")
+                    color: Theme.textMuted
+                    font.pixelSize: Theme.fontSmall
+                    wrapMode: Text.WordWrap
+                }
+
+                GridLayout {
+                    Layout.fillWidth: true
+                    columns: 2
+                    columnSpacing: 10
+                    rowSpacing: 8
+
+                    TextField {
+                        id: credentialIdInput
+                        Layout.fillWidth: true
+                        placeholderText: root.t("settings.credentialId")
+                        Accessible.name: root.t("settings.credentialId")
+                        maximumLength: 128
+                        inputMethodHints: Qt.ImhNoPredictiveText
+                    }
+
+                    TextField {
+                        id: credentialSecretInput
+                        Layout.fillWidth: true
+                        placeholderText: root.t("settings.credentialSecret")
+                        Accessible.name: root.t("settings.credentialSecret")
+                        echoMode: TextInput.Password
+                        maximumLength: 16384
+                        inputMethodHints: Qt.ImhSensitiveData | Qt.ImhNoPredictiveText
+                    }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+
+                    Button {
+                        text: root.t("settings.credentialStore")
+                        enabled: api.connected
+                            && api.controlPlaneCommandSupported("storeCredential")
+                            && credentialIdInput.text.trim().length > 0
+                            && credentialSecretInput.text.length > 0
+                        onClicked: {
+                            const secret = credentialSecretInput.text
+                            credentialSecretInput.clear()
+                            api.storeCredential(credentialIdInput.text, secret)
+                        }
+                    }
+
+                    Button {
+                        text: root.t("settings.credentialDelete")
+                        enabled: api.connected
+                            && api.controlPlaneCommandSupported("deleteCredential")
+                            && credentialIdInput.text.trim().length > 0
+                        onClicked: api.deleteCredential(credentialIdInput.text)
+                    }
+
+                    Item { Layout.fillWidth: true }
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    visible: !api.controlPlaneCommandSupported("storeCredential")
+                    text: root.t("settings.credentialUnavailable")
+                    color: Theme.warning
+                    font.pixelSize: Theme.fontSmall
+                    wrapMode: Text.WordWrap
+                }
             }
         }
 

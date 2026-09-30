@@ -208,6 +208,8 @@ public:
     Q_INVOKABLE void setLogLevel(const QString &level);
 
     Q_INVOKABLE void refreshSettingsServices();
+    Q_INVOKABLE void storeCredential(const QString &credentialId, const QString &secret);
+    Q_INVOKABLE void deleteCredential(const QString &credentialId);
     Q_INVOKABLE void refreshExternalTools();
     Q_INVOKABLE void runExternalToolAction(
         const QString &toolId,
@@ -304,6 +306,11 @@ signals:
 
     void settingsServicesChanged();
     void settingsServiceActionCompleted(const QString &action, const QString &message);
+    void credentialActionCompleted(
+        const QString &action,
+        const QString &credentialId,
+        bool removed
+    );
 
     void browserIntegrationChanged();
     void browserIntegrationFailed(const QString &message);
