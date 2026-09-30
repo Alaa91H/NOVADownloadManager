@@ -135,13 +135,13 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $installer = (Resolve-Path "dist\NOVA-Download-Manager-Setup-$env:APP_VERSION-${{ matrix.arch }}.exe").Path
           $installRoot = Join-Path $env:RUNNER_TEMP "nova-setup-smoke-${{ matrix.arch }}"
-          & $installer '/S' "/D=$installRoot"
-          if ($LASTEXITCODE -ne 0) { throw "Silent install failed with exit code $LASTEXITCODE" }
+          $install = Start-Process -FilePath $installer -ArgumentList @('/S', "/D=$installRoot") -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "Silent install failed with exit code $($install.ExitCode)" }
           foreach ($relative in @('bin\nova-native.exe', 'bin\nova-native-backend.exe', 'bin\nova-native-host.exe', 'Uninstall.exe')) {
             if (!(Test-Path (Join-Path $installRoot $relative) -PathType Leaf)) { throw "Installed runtime is missing: $relative" }
           }
-          & (Join-Path $installRoot 'Uninstall.exe') '/S'
-          if ($LASTEXITCODE -ne 0) { throw "Silent uninstall failed with exit code $LASTEXITCODE" }
+          $uninstaller = Start-Process -FilePath (Join-Path $installRoot 'Uninstall.exe') -ArgumentList '/S' -Wait -PassThru
+          if ($uninstaller.ExitCode -ne 0) { throw "Silent uninstall failed with exit code $($uninstaller.ExitCode)" }
           if (Test-Path $installRoot) { throw "Uninstaller left files behind at $installRoot" }
 
       - name: Create SHA-256 checksum

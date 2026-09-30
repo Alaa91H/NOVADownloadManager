@@ -35,6 +35,7 @@ BrandingText "NOVA Download Manager"
 VIProductVersion "${APP_FILE_VERSION}"
 VIAddVersionKey "ProductName" "${PRODUCT_NAME}"
 VIAddVersionKey "ProductVersion" "${APP_VERSION}"
+VIAddVersionKey "FileVersion" "${APP_FILE_VERSION}"
 VIAddVersionKey "FileDescription" "NOVA Download Manager Windows Setup"
 VIAddVersionKey "CompanyName" "${PRODUCT_PUBLISHER}"
 VIAddVersionKey "LegalCopyright" "Copyright NOVA Download Manager contributors"
@@ -79,7 +80,7 @@ Section "NOVA Download Manager" SEC_APPLICATION
   WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayVersion" "${APP_VERSION}"
   WriteRegStr HKCU "${UNINSTALL_KEY}" "Publisher" "${PRODUCT_PUBLISHER}"
   WriteRegStr HKCU "${UNINSTALL_KEY}" "InstallLocation" "$INSTDIR"
-  WriteRegStr HKCU "${UNINSTALL_KEY}" "UninstallString" '$"$INSTDIR\Uninstall.exe$"'
+  WriteRegStr HKCU "${UNINSTALL_KEY}" "UninstallString" "$\"$INSTDIR\Uninstall.exe$\""
   WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayIcon" "$INSTDIR\bin\nova-native.exe"
   WriteRegStr HKCU "${UNINSTALL_KEY}" "URLInfoAbout" "${PRODUCT_URL}"
   WriteRegDWORD HKCU "${UNINSTALL_KEY}" "NoModify" 1
