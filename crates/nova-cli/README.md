@@ -21,9 +21,10 @@ nova profile set balanced
 nova rules list
 nova schedule list
 nova media add https://example.org/video
+nova network capabilities
 nova events 0
 nova diagnostics
 nova logs 200 warn
 ```
 
-Queue/profile/rule/schedule/media/torrent payloads that need advanced fields accept JSON. `media add` accepts either a URL or a complete JSON request. `diagnostics` and bounded, redacted `logs` use the shared query envelope. Network Profiles and unified settings are reported unavailable until Runtime exposes those contracts.
+Queue/profile/rule/schedule/media/torrent payloads that need advanced fields accept JSON. `media add` accepts either a URL or a complete JSON request. `diagnostics` and bounded, redacted `logs` use the shared query envelope. `network capabilities` filters the Runtime-owned registry to the `network.*` entries; it is read-only, and Network Profile management remains unavailable until the Runtime exposes that contract. Unified settings are also reported unavailable.

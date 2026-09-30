@@ -11,6 +11,7 @@ enum Request {
     Command(ControlCommand),
     Query(ControlQuery),
     Capabilities,
+    NetworkCapabilities,
     Unsupported(String),
 }
 
@@ -46,6 +47,10 @@ fn run() -> Result<(), String> {
     let capabilities = get_capabilities(&client, &base_url, &token)?;
     let output = match request {
         Request::Capabilities => capabilities,
+        Request::NetworkCapabilities => {
+            ensure_runtime_registry_version(&capabilities)?;
+            network_capabilities(&capabilities)?
+        }
         Request::Unsupported(reason) => return Err(reason),
         Request::Command(command) => {
             ensure_runtime_registry_version(&capabilities)?;
@@ -111,6 +116,32 @@ fn ensure_runtime_registry_version(capabilities: &serde_json::Value) -> Result<(
         return Err("runtime capability registry has an unsupported source of truth".to_owned());
     }
     Ok(())
+}
+
+fn network_capabilities(capabilities: &serde_json::Value) -> Result<serde_json::Value, String> {
+    let registry = capabilities
+        .get("capabilityRegistry")
+        .ok_or_else(|| "runtime did not provide its unified capability registry".to_owned())?;
+    let entries = registry
+        .get("entries")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| "runtime capability registry entries are malformed".to_owned())?;
+    let network_entries = entries
+        .iter()
+        .filter(|entry| {
+            entry
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|id| id.starts_with("network."))
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+
+    Ok(serde_json::json!({
+        "schemaVersion": registry.get("schemaVersion"),
+        "sourceOfTruth": registry.get("sourceOfTruth"),
+        "entries": network_entries,
+    }))
 }
 
 fn build_request(args: &[String]) -> Result<Request, String> {
@@ -204,8 +235,13 @@ fn build_request(args: &[String]) -> Result<Request, String> {
         "media" => media_request(rest)?,
         "torrent" => torrent_request(rest)?,
         "credential" => credential_request(rest)?,
+        "network"
+            if rest.len() == 1 && rest.first().map(String::as_str) == Some("capabilities") =>
+        {
+            Request::NetworkCapabilities
+        }
         "network" => Request::Unsupported(
-            "this runtime build does not expose Network Profile commands in the v1 contract".to_owned(),
+            "usage: network capabilities; Network Profile management is not yet exposed by this runtime contract".to_owned(),
         ),
         "config" => Request::Unsupported(
             "unified settings queries are not yet exposed by the v1 contract".to_owned(),
@@ -706,6 +742,6 @@ fn print_help() {
          credential store <id> < secret.txt | credential delete <id>\n\
          events [cursor] | batch <json-command-array> | capabilities\n\
          Commands accept --idempotency-key <key> so retries after a timeout do not repeat mutations.\n\
-         diagnostics | logs [limit] [trace|debug|info|warn|error] | network/config (runtime capability dependent)."
+         diagnostics | logs [limit] [trace|debug|info|warn|error] | network capabilities | config (runtime capability dependent)."
     );
 }
