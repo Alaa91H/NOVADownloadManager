@@ -359,7 +359,7 @@ fn stage_one_unit(
             end,
             &mut file,
             &request_context,
-            || control(),
+            control,
         )
         .map_err(map_transport_error)?;
     } else {
