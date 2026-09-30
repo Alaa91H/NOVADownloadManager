@@ -109,6 +109,7 @@ const requiredSourceFragments = [
   [desktopApiHeader, 'Q_INVOKABLE bool runtimeCapabilitySupported', 'Qt runtime capability adapter declaration'],
   [desktopApiSource, 'QString NovaApiClient::runtimeCapabilityStatus', 'Qt runtime capability adapter implementation'],
   [cliSource, 'fn ensure_runtime_entry_supported', 'CLI runtime capability validation'],
+  [cliSource, 'fn ensure_runtime_registry_version', 'CLI capability registry version validation'],
   [cliSource, '"/capabilityRegistry/entries"', 'CLI unified capability registry path'],
   [telegramSource, '"/capabilityRegistry/schemaVersion"', 'Telegram capability registry version reporting'],
   [telegramSource, 'Runtime capability registry v{registry_version}', 'Telegram capability registry summary'],

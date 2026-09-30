@@ -1,6 +1,6 @@
 use nova_core_model::{
     BatchMode, CommandEnvelope, ControlCommand, ControlQuery, QueryEnvelope, TaskQueryFilter,
-    CONTROL_PLANE_CONTRACT_VERSION,
+    CAPABILITY_REGISTRY_CONTRACT_VERSION, CONTROL_PLANE_CONTRACT_VERSION,
 };
 use std::env;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -46,6 +46,7 @@ fn run() -> Result<(), String> {
         Request::Capabilities => capabilities,
         Request::Unsupported(reason) => return Err(reason),
         Request::Command(command) => {
+            ensure_runtime_registry_version(&capabilities)?;
             ensure_command_available(&capabilities, &command)?;
             let now = timestamp_nanos();
             let generated_key = format!("nova-cli-{}-{now}", std::process::id());
@@ -64,6 +65,9 @@ fn run() -> Result<(), String> {
             )?
         }
         Request::Query(query) => {
+            if !matches!(&query, &ControlQuery::Capabilities) {
+                ensure_runtime_registry_version(&capabilities)?;
+            }
             ensure_query_available(&capabilities, &query)?;
             let envelope = QueryEnvelope {
                 contract_version: CONTROL_PLANE_CONTRACT_VERSION,
@@ -84,6 +88,26 @@ fn run() -> Result<(), String> {
         serde_json::to_string_pretty(&output)
             .map_err(|error| format!("cannot render response: {error}"))?
     );
+    Ok(())
+}
+
+fn ensure_runtime_registry_version(capabilities: &serde_json::Value) -> Result<(), String> {
+    let actual_version = capabilities
+        .pointer("/capabilityRegistry/schemaVersion")
+        .and_then(serde_json::Value::as_u64);
+    if actual_version != Some(u64::from(CAPABILITY_REGISTRY_CONTRACT_VERSION)) {
+        return Err(format!(
+            "runtime capability registry version {:?} is incompatible with CLI version {}",
+            actual_version, CAPABILITY_REGISTRY_CONTRACT_VERSION
+        ));
+    }
+    if capabilities
+        .pointer("/capabilityRegistry/sourceOfTruth")
+        .and_then(serde_json::Value::as_str)
+        != Some("rust-runtime")
+    {
+        return Err("runtime capability registry has an unsupported source of truth".to_owned());
+    }
     Ok(())
 }
 
