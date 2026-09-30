@@ -517,14 +517,14 @@ fn handle_extended_control_command(
                 .map(|task| task_inspection_reply(&task))
             }),
         ),
-        "/events" => Some((|| {
+        "/events" => Some({
             let cursor = if arg.trim().is_empty() {
                 None
             } else {
                 Some(arg.trim().to_owned())
             };
             run_events_query(state, rt, cursor)
-        })()),
+        }),
         "/logs" => Some((|| {
             let parts = arg.split_whitespace().collect::<Vec<_>>();
             if parts.len() > 1 {
