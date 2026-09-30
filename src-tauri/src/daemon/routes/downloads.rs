@@ -23,7 +23,7 @@ use crate::daemon::native_media::{
 };
 use crate::daemon::state::SharedState;
 use crate::daemon::telegram::telegram_notify;
-use crate::daemon::torrent_task::{analyze_magnet, create_torrent_task, CreateTorrentBody};
+use crate::daemon::torrent_task::{analyze_magnet, CreateTorrentBody};
 use crate::daemon::types::{
     transition_task_state, CreateDownloadBody, MediaDownloadOptions, Task, TaskState,
 };
@@ -410,6 +410,32 @@ pub(crate) async fn create_download_service(
         ));
     }
 
+    if url.trim().to_ascii_lowercase().starts_with("magnet:") {
+        let analysis = analyze_magnet(&state, &url).await.map_err(|error| {
+            (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(serde_json::json!({"error": error})),
+            )
+        })?;
+        let task = create_torrent_download_service(
+            &state,
+            CreateTorrentBody {
+                analysis_id: analysis.analysis_id,
+                save_path: body.save_path.clone().unwrap_or_default(),
+                allow_duplicate: false,
+                start_immediately: body.start_immediately,
+                file_priorities: None,
+                connections: body.connections,
+                seeding: None,
+            },
+            Some(url),
+            body.category,
+            body.queue_id,
+        )
+        .await?;
+        return Ok(task);
+    }
+
     let (rule_priority, rule_mirrors, rule_rate_limit, applied_rules) =
         apply_download_rules(&state, &mut body, &url).map_err(|error| {
             (
@@ -417,91 +443,6 @@ pub(crate) async fn create_download_service(
                 Json(serde_json::json!({"error": error})),
             )
         })?;
-
-    if url.trim().to_ascii_lowercase().starts_with("magnet:") {
-        if let Some((_, action)) = applied_rules.iter().find(|(_, action)| {
-            matches!(
-                action.as_str(),
-                "addHeader" | "addMirror" | "requireChecksum"
-            )
-        }) {
-            return Err((
-                StatusCode::UNPROCESSABLE_ENTITY,
-                Json(serde_json::json!({
-                    "error": format!("A matching rule uses {action}, which is not supported for torrent tasks")
-                })),
-            ));
-        }
-        let save_path = body
-            .save_path
-            .as_deref()
-            .map(str::trim)
-            .filter(|path| !path.is_empty())
-            .ok_or_else(|| {
-                (
-                    StatusCode::UNPROCESSABLE_ENTITY,
-                    Json(serde_json::json!({
-                        "error": "A destination directory is required for magnet downloads"
-                    })),
-                )
-            })?
-            .to_owned();
-
-        let analysis = analyze_magnet(&state, &url).await.map_err(|error| {
-            (
-                StatusCode::UNPROCESSABLE_ENTITY,
-                Json(serde_json::json!({"error": error})),
-            )
-        })?;
-        let task = create_torrent_task(
-            &state,
-            CreateTorrentBody {
-                analysis_id: analysis.analysis_id,
-                save_path,
-                allow_duplicate: false,
-                // Apply matching queue and bandwidth policy before the task
-                // can start, just as the direct-download path does.
-                start_immediately: Some(false),
-                file_priorities: None,
-                connections: body.connections,
-                seeding: None,
-            },
-        )
-        .await
-        .map_err(|error| {
-            (
-                StatusCode::UNPROCESSABLE_ENTITY,
-                Json(serde_json::json!({"error": error})),
-            )
-        })?;
-        let task = crate::daemon::torrent_task::apply_torrent_rule_overrides(
-            &state,
-            &task.id,
-            body.category,
-            body.queue_id,
-            rule_priority,
-            rule_rate_limit,
-        )
-        .map_err(|error| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": error})),
-            )
-        })?;
-        register_task_with_engine(&state, &task, None, Vec::new(), None, applied_rules);
-        if body.start_immediately.unwrap_or(true) {
-            crate::daemon::torrent_task::start_torrent_process(&state, &task.id).map_err(
-                |error| {
-                    (
-                        StatusCode::UNPROCESSABLE_ENTITY,
-                        Json(serde_json::json!({"error": error})),
-                    )
-                },
-            )?;
-        }
-        telegram_notify(&state, &format!("Torrent added: {}", task.name)).await;
-        return Ok(task);
-    }
 
     // ── Accept Immediately → Resolve Concurrently ──────────────────────────
     // Try the synchronous fast-path first (we already have a filename).
@@ -621,6 +562,108 @@ pub(crate) async fn create_download_service(
             Err(daemon_error(e))
         }
     }
+}
+
+pub(crate) async fn create_torrent_download_service(
+    state: &SharedState,
+    mut body: CreateTorrentBody,
+    source_url: Option<String>,
+    category: Option<String>,
+    queue_id: Option<String>,
+) -> Result<Task, (StatusCode, Json<serde_json::Value>)> {
+    let url = match source_url {
+        Some(url) => url,
+        None => crate::daemon::torrent_task::torrent_analysis_source(state, &body.analysis_id)
+            .map_err(|error| {
+                (
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    Json(serde_json::json!({"error": error})),
+                )
+            })?,
+    };
+    let mut rule_request = CreateDownloadBody {
+        url: Some(url.clone()),
+        name: None,
+        file_type: Some("torrent".to_owned()),
+        size_bytes: None,
+        category,
+        queue_id,
+        connections: body.connections,
+        resumable: Some(true),
+        save_path: Some(body.save_path.clone()),
+        description: None,
+        referer: None,
+        start_immediately: Some(false),
+        direct_options: None,
+        media_options: None,
+    };
+    let (rule_priority, rule_mirrors, rule_rate_limit, applied_rules) =
+        apply_download_rules(state, &mut rule_request, &url).map_err(|error| {
+            (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(serde_json::json!({"error": error})),
+            )
+        })?;
+    if let Some((_, action)) = applied_rules.iter().find(|(_, action)| {
+        matches!(
+            action.as_str(),
+            "addHeader" | "addMirror" | "requireChecksum"
+        )
+    }) {
+        return Err((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(serde_json::json!({
+                "error": format!("A matching rule uses {action}, which is not supported for torrent tasks")
+            })),
+        ));
+    }
+    debug_assert!(rule_mirrors.is_empty());
+    body.save_path = rule_request.save_path.unwrap_or_default();
+    if body.save_path.trim().is_empty() {
+        return Err((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(serde_json::json!({
+                "error": "A destination directory is required for torrent downloads"
+            })),
+        ));
+    }
+    body.connections = rule_request.connections;
+    let start_immediately = body.start_immediately.unwrap_or(true);
+    body.start_immediately = Some(false);
+
+    let task = crate::daemon::torrent_task::create_torrent_task(state, body)
+        .await
+        .map_err(|error| {
+            (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(serde_json::json!({"error": error})),
+            )
+        })?;
+    let task = crate::daemon::torrent_task::apply_torrent_rule_overrides(
+        state,
+        &task.id,
+        rule_request.category,
+        rule_request.queue_id,
+        rule_priority,
+        rule_rate_limit,
+    )
+    .map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": error})),
+        )
+    })?;
+    register_task_with_engine(state, &task, None, rule_mirrors, None, applied_rules);
+    if start_immediately {
+        crate::daemon::torrent_task::start_torrent_process(state, &task.id).map_err(|error| {
+            (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(serde_json::json!({"error": error})),
+            )
+        })?;
+    }
+    telegram_notify(state, &format!("Torrent added: {}", task.name)).await;
+    Ok(task)
 }
 
 pub async fn handle_create_download(

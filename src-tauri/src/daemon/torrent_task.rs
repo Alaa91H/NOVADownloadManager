@@ -418,8 +418,17 @@ pub async fn create_torrent_task(
     get_torrent_task(state, &id).ok_or_else(|| "Torrent task disappeared after creation".to_owned())
 }
 
+pub fn torrent_analysis_source(state: &SharedState, analysis_id: &str) -> Result<String, String> {
+    let mut analyses = lock_or_err!(state.torrent_analyses);
+    analyses.retain(|_, item| item.created_at.elapsed() <= TORRENT_ANALYSIS_TTL);
+    analyses
+        .get(analysis_id.trim())
+        .map(|analysis| analysis.source_uri.clone())
+        .ok_or_else(|| "Torrent analysis expired or was not found".to_owned())
+}
+
 /// Applies queue and bandwidth policy selected by the shared download Rules
-/// engine before a magnet task is started.
+/// engine before a torrent task is started.
 pub fn apply_torrent_rule_overrides(
     state: &SharedState,
     id: &str,

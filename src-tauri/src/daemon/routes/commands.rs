@@ -608,10 +608,10 @@ async fn execute_single(
         ControlCommand::AddTorrent { request } => {
             let body = decode_request::<crate::daemon::torrent_task::CreateTorrentBody>(request)?;
             require_runtime_capability(state, "torrent.core")?;
-            crate::daemon::torrent_task::create_torrent_task(state, body)
-                .await
-                .map_err(domain_error)
-                .and_then(to_value)
+            match downloads::create_torrent_download_service(state, body, None, None, None).await {
+                Ok(task) => to_value(task),
+                Err((status, Json(body))) => Err(route_error(state, status, body)),
+            }
         }
         ControlCommand::UpdateTask { task_id, request } => {
             let body = decode_request::<downloads::UpdateDownloadBody>(request)?;
