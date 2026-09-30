@@ -232,7 +232,30 @@ fn priority_from_name(name: &str) -> DownloadPriority {
 /// Applies matching download rules to the request body before task creation.
 /// Returns the queue priority chosen by rules (if any), the mirror URLs to
 /// register, and the per-task rate limit â€” or an error for `Reject` rules.
-type ApplyRulesResult = Result<(Option<DownloadPriority>, Vec<String>, Option<u64>), String>;
+type ApplyRulesResult = Result<
+    (
+        Option<DownloadPriority>,
+        Vec<String>,
+        Option<u64>,
+        Vec<(String, String)>,
+    ),
+    String,
+>;
+
+fn rule_action_event_name(action: &RuleAction) -> &'static str {
+    match action {
+        RuleAction::SetCategory { .. } => "setCategory",
+        RuleAction::SetPriority { .. } => "setPriority",
+        RuleAction::SetConnections { .. } => "setConnections",
+        RuleAction::SetSavePath { .. } => "setSavePath",
+        RuleAction::SetProfile { .. } => "setProfile",
+        RuleAction::SetRateLimit { .. } => "setRateLimit",
+        RuleAction::AddHeader { .. } => "addHeader",
+        RuleAction::AddMirror { .. } => "addMirror",
+        RuleAction::RequireChecksum { .. } => "requireChecksum",
+        RuleAction::Reject { .. } => "reject",
+    }
+}
 
 fn apply_download_rules(
     state: &SharedState,
@@ -247,8 +270,11 @@ fn apply_download_rules(
     let mut priority = None;
     let mut mirrors = Vec::new();
     let mut rate_limit_kbps = None;
+    let mut applied_rules = Vec::new();
     for (rule_id, action) in matched {
-        let action_label = format!("{action:?}");
+        // Event consumers need the decision type, not its configured value.
+        // Values can include paths, custom headers, or other sensitive data.
+        let action_label = rule_action_event_name(&action).to_owned();
         match action {
             RuleAction::Reject { reason } => {
                 return Err(format!("Download rejected by rule {rule_id}: {reason}"));
@@ -311,15 +337,9 @@ fn apply_download_rules(
                 );
             }
         }
-        state
-            .event_bus
-            .publish(crate::daemon::engine::event_bus::EngineEvent::RuleApplied {
-                task_id: String::new(),
-                rule_id,
-                action: action_label,
-            });
+        applied_rules.push((rule_id, action_label));
     }
-    Ok((priority, mirrors, rate_limit_kbps))
+    Ok((priority, mirrors, rate_limit_kbps, applied_rules))
 }
 
 /// Registers a freshly created task with the engine subsystems: priority
@@ -330,6 +350,7 @@ fn register_task_with_engine(
     priority: Option<DownloadPriority>,
     mirrors: Vec<String>,
     rate_limit_kbps: Option<u64>,
+    applied_rules: Vec<(String, String)>,
 ) {
     state.priority_queue.enqueue(QueueEntry {
         task_id: task.id.clone(),
@@ -365,6 +386,15 @@ fn register_task_with_engine(
         state
             .bandwidth_manager
             .set_task_limit(task.id.clone(), kbps);
+    }
+    for (rule_id, action) in applied_rules {
+        state
+            .event_bus
+            .publish(crate::daemon::engine::event_bus::EngineEvent::RuleApplied {
+                task_id: task.id.clone(),
+                rule_id,
+                action,
+            });
     }
 }
 
@@ -425,7 +455,7 @@ pub(crate) async fn create_download_service(
         return Ok(task);
     }
 
-    let (rule_priority, rule_mirrors, rule_rate_limit) =
+    let (rule_priority, rule_mirrors, rule_rate_limit, applied_rules) =
         apply_download_rules(&state, &mut body, &url).map_err(|e| {
             (
                 StatusCode::UNPROCESSABLE_ENTITY,
@@ -511,7 +541,14 @@ pub(crate) async fn create_download_service(
                     }
                 }
             }
-            register_task_with_engine(&state, &task, rule_priority, all_mirrors, rule_rate_limit);
+            register_task_with_engine(
+                &state,
+                &task,
+                rule_priority,
+                all_mirrors,
+                rule_rate_limit,
+                applied_rules,
+            );
 
             // ── Spawn background resolution for slow-path tasks ────────────
             if needs_background_resolve && !task_id.is_empty() {
