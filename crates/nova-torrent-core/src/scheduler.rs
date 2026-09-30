@@ -196,7 +196,7 @@ impl PieceScheduler {
                 FilePriority::Skip => 2,
             };
             let candidate = (priority_rank, self.availability[index], distance, index);
-            if best.map_or(true, |current| candidate < current) {
+            if best.is_none_or(|current| candidate < current) {
                 best = Some(candidate);
             }
         }
