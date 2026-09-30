@@ -481,7 +481,7 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                     task_generation: std::sync::atomic::AtomicU64::new(0),
                     task_list_cache: std::sync::RwLock::new(None),
                     command_bus: crate::daemon::command_bus::CommandBus::default(),
-                    credential_store: crate::daemon::credential_store::CredentialStore::default(),
+                    credential_store: crate::daemon::credential_store::CredentialStore,
                     event_bus,
                     priority_queue,
                     bandwidth_manager,
