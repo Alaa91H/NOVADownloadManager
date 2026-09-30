@@ -892,10 +892,7 @@ fn control_event(
         E::DownloadStarted { .. } => "download.started",
         E::DownloadProgress { .. } => "download.progress",
         E::DownloadComplete { .. } => "download.completed",
-        E::DownloadFailed {
-            will_retry,
-            ..
-        } => {
+        E::DownloadFailed { will_retry, .. } => {
             if *will_retry {
                 "download.retrying"
             } else {
