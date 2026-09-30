@@ -349,7 +349,7 @@ pub fn transcode_local_media(
     let audio_sample_format = job
         .audio_codec
         .as_deref()
-        .filter(|codec| normalize_audio_codec(codec).as_deref() == Some("pcm"))
+        .filter(|codec| normalize_audio_codec(codec) == Some("pcm"))
         .map(|_| SampleFormat::S16);
     let audio_codec = build_stream_codec(
         &engine,
@@ -836,7 +836,7 @@ pub fn validate_local_media_subtitle_embed_job(
         })?;
         if !engine
             .formats
-            .by_name(&format_name)
+            .by_name(format_name)
             .is_some_and(|format| format.can_demux())
         {
             return Err(MediaProcessingError::UnsupportedContainer(format!(
@@ -1026,7 +1026,7 @@ pub fn validate_local_media_transcode_job(
     let sample_format = job
         .audio_codec
         .as_deref()
-        .filter(|codec| normalize_audio_codec(codec).as_deref() == Some("pcm"))
+        .filter(|codec| normalize_audio_codec(codec) == Some("pcm"))
         .map(|_| SampleFormat::S16);
     let audio_codec = build_stream_codec(
         &engine,
