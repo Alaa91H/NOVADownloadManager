@@ -639,7 +639,7 @@ pub(crate) async fn create_torrent_download_service(
                 Json(serde_json::json!({"error": error})),
             )
         })?;
-    let task = crate::daemon::torrent_task::apply_torrent_rule_overrides(
+    let mut task = crate::daemon::torrent_task::apply_torrent_rule_overrides(
         state,
         &task.id,
         rule_request.category,
@@ -661,6 +661,9 @@ pub(crate) async fn create_torrent_download_service(
                 Json(serde_json::json!({"error": error})),
             )
         })?;
+        if let Some(started_task) = crate::daemon::torrent_task::get_torrent_task(state, &task.id) {
+            task = started_task;
+        }
     }
     telegram_notify(state, &format!("Torrent added: {}", task.name)).await;
     Ok(task)
