@@ -28,6 +28,7 @@ jobs:
     outputs:
       desktop: ${{ steps.filter.outputs.desktop }}
       runtime: ${{ steps.filter.outputs.runtime }}
+      windows_installer: ${{ steps.filter.outputs.windows_installer }}
       build_reset: ${{ steps.filter.outputs.build_reset }}
       release_request: ${{ steps.filter.outputs.release_request }}
 
@@ -62,6 +63,21 @@ jobs:
               - 'docs/**'
               - 'package.json'
               - 'pnpm-lock.yaml'
+              - 'packaging/windows/**'
+              - '.github/workflows/nova-ci.yml'
+            windows_installer:
+              - 'desktop-native/**'
+              - 'src-tauri/**'
+              - 'crates/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'scripts/**'
+              - 'browser-extension/**'
+              - 'docs/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'packaging/windows/**'
+              - '.github/release-request.json'
               - '.github/workflows/nova-ci.yml'
             runtime:
               - 'src-tauri/**'
@@ -141,6 +157,7 @@ jobs:
     needs: changes
     if: >-
       github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
       (
         needs.changes.outputs.build_reset != 'true' &&
         (
@@ -245,9 +262,10 @@ jobs:
     needs: changes
     if: >-
       github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
       (
         needs.changes.outputs.build_reset != 'true' &&
-        needs.changes.outputs.runtime == 'true' &&
+        (needs.changes.outputs.runtime == 'true' || needs.changes.outputs.release_request == 'true') &&
         (
           (
             github.event_name == 'push' &&
@@ -385,7 +403,7 @@ jobs:
       (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
       (
         needs.changes.outputs.build_reset != 'true' &&
-        needs.changes.outputs.desktop == 'true' &&
+        (needs.changes.outputs.desktop == 'true' || needs.changes.outputs.release_request == 'true') &&
         (
           (
             github.event_name == 'push' &&
@@ -762,6 +780,7 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch' ||
       github.event_name == 'schedule' ||
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
       (
         needs.changes.outputs.build_reset != 'true' &&
         (
@@ -847,11 +866,96 @@ jobs:
         with:
           category: /language:${{ matrix.language }}
 
+  quality:
+    name: Strict code and security quality gate
+    needs: changes
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule' ||
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
+      (
+        needs.changes.outputs.build_reset != 'true' &&
+        (
+          (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')) ||
+          (github.event_name == 'pull_request' && (github.base_ref == 'main' || github.base_ref == 'master'))
+        )
+      )
+    permissions:
+      contents: read
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Checkout complete history
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install locked quality tooling
+        run: pnpm install --frozen-lockfile
+
+      - name: Enforce repository security and architecture policy
+        run: |
+          pnpm run security:check
+          pnpm run facts:verify
+          pnpm run branding:verify
+
+      - name: Enforce generated contracts and capability parity
+        run: |
+          node scripts/check-runtime-contract.mjs
+          node scripts/generate-design-tokens.mjs --check
+          node scripts/check-control-plane-parity.mjs
+          node desktop-native/scripts/check-parity.mjs
+
+      - name: Enforce native UI, localization, accessibility, and visual contracts
+        run: pnpm run native:check
+
+      - name: Enforce browser extension lint and manifest policy
+        run: |
+          pnpm --filter nova-browser-extension exec eslint . --max-warnings 0
+          pnpm --filter nova-browser-extension validate:manifests
+
+      - name: Reject whitespace defects in submitted source
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$BASE_SHA" ]]; then
+            git diff --check "$BASE_SHA...HEAD"
+          else
+            git diff --check HEAD^ HEAD
+          fi
+
   release:
     name: Create tag and draft release
-    needs: changes
+    needs:
+      - changes
+      - quality
+      - runtime-compatibility
+      - android
+      - desktop
+      - codeql
+      - windows-installer
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.release_request == 'true'
     permissions:
+      actions: write
       contents: write
     concurrency:
       group: nova-release-request
@@ -941,6 +1045,12 @@ jobs:
           fi
           gh "${args[@]}"
 
+      - name: Dispatch full CI against the immutable release tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.request.outputs.tag }}
+        run: gh workflow run nova-ci.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG"
+
 
       - name: Summary
         env:
@@ -951,4 +1061,200 @@ jobs:
           echo "- Version sources stamped and committed" >> "$GITHUB_STEP_SUMMARY"
           echo "- Annotated tag created and pushed" >> "$GITHUB_STEP_SUMMARY"
           echo "- Curated draft GitHub Release created" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Tagged Desktop build is triggered automatically by the unified workflow" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Full strict CI and the Windows installer preflight passed before the tag was created" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Full CI was explicitly dispatched against the immutable tag; the final installer will be attached after those checks pass" >> "$GITHUB_STEP_SUMMARY"
+
+  windows-installer:
+    name: Build and smoke-check Windows setup (${{ matrix.arch }})
+    needs:
+      - changes
+      - quality
+      - runtime-compatibility
+      - android
+      - desktop
+      - codeql
+    if: >-
+      always() &&
+      (
+        (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
+        (github.event_name == 'workflow_dispatch' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v')) ||
+        (
+          github.event_name == 'push' && github.ref == 'refs/heads/main' &&
+          needs.changes.outputs.release_request == 'true'
+        ) ||
+        (
+          (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')) ||
+          (github.event_name == 'pull_request' && (github.base_ref == 'main' || github.base_ref == 'master'))
+        ) && needs.changes.outputs.windows_installer == 'true'
+      )
+    permissions:
+      actions: read
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, arm64]
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Enforce upstream quality results
+        shell: pwsh
+        env:
+          JOB_RESULTS: ${{ toJSON(needs) }}
+          RELEASE_RUN: ${{ (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || (github.event_name == 'workflow_dispatch' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v')) || (github.event_name == 'push' && needs.changes.outputs.release_request == 'true') }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $jobs = $env:JOB_RESULTS | ConvertFrom-Json
+          foreach ($required in @('changes', 'quality', 'desktop', 'codeql')) {
+            $result = $jobs.PSObject.Properties[$required].Value.result
+            if ($result -ne 'success') { throw "Required upstream quality job '$required' ended as '$result'" }
+          }
+          if ($env:RELEASE_RUN -eq 'true') {
+            foreach ($required in @('runtime-compatibility', 'android')) {
+              $result = $jobs.PSObject.Properties[$required].Value.result
+              if ($result -ne 'success') { throw "Release requires '$required' to succeed, got '$result'" }
+            }
+          } else {
+            foreach ($name in @('runtime-compatibility', 'android')) {
+              $result = $jobs.PSObject.Properties[$name].Value.result
+              if ($result -in @('failure', 'cancelled')) { throw "Upstream job '$name' ended as '$result'" }
+            }
+          }
+
+      - name: Harden runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Checkout tagged source
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Download matching native Windows runtime bundle
+        uses: actions/download-artifact@v8
+        with:
+          name: NOVA-Native-Preview-Windows-${{ matrix.arch }}-${{ github.sha }}
+          path: preview/NOVA-Native-Windows-${{ matrix.arch }}
+
+      - name: Install pinned NSIS compiler
+        shell: pwsh
+        run: choco install nsis --version=3.12.0 --yes --no-progress
+
+      - name: Resolve validated release version
+        id: version
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = $env:RELEASE_TAG
+          if ([string]::IsNullOrWhiteSpace($version)) {
+            $request = Get-Content .github/release-request.json -Raw | ConvertFrom-Json
+            $version = "v$($request.version)"
+          }
+          if ($version -notmatch '^v(?<major>0|[1-9]\d*)\.(?<minor>0|[1-9]\d*)\.(?<patch>0|[1-9]\d*)(?<suffix>-[0-9A-Za-z.-]+)?$') {
+            throw "Invalid release version for setup: $version"
+          }
+          $appVersion = "$($Matches.major).$($Matches.minor).$($Matches.patch)$($Matches.suffix)"
+          $compilerVersion = "$($Matches.major).$($Matches.minor).$($Matches.patch).0"
+          "app_version=$appVersion" >> $env:GITHUB_OUTPUT
+          "compiler_version=$compilerVersion" >> $env:GITHUB_OUTPUT
+
+      - name: Compile versioned setup
+        shell: pwsh
+        env:
+          APP_VERSION: ${{ steps.version.outputs.app_version }}
+          APP_FILE_VERSION: ${{ steps.version.outputs.compiler_version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $appSource = "preview\NOVA-Native-Windows-${{ matrix.arch }}"
+          $installerPath = "dist\NOVA-Download-Manager-Setup-$env:APP_VERSION-${{ matrix.arch }}.exe"
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $compiler = (Get-Command makensis.exe -ErrorAction Stop).Source
+          & $compiler "/DAPP_VERSION=$env:APP_VERSION" "/DAPP_FILE_VERSION=$env:APP_FILE_VERSION" "/DAPP_ARCH=${{ matrix.arch }}" "/DAPP_SOURCE_DIR=$appSource" "packaging\windows\nova-setup.nsi"
+          if ($LASTEXITCODE -ne 0) { throw "NSIS setup compilation failed with exit code $LASTEXITCODE" }
+          if (!(Test-Path $installerPath)) { throw "Expected installer was not created: $installerPath" }
+          Write-Output "Built unsigned setup: $installerPath"
+
+      - name: Install and uninstall smoke check
+        shell: pwsh
+        env:
+          APP_VERSION: ${{ steps.version.outputs.app_version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = (Resolve-Path "dist\NOVA-Download-Manager-Setup-$env:APP_VERSION-${{ matrix.arch }}.exe").Path
+          $installRoot = Join-Path $env:RUNNER_TEMP "nova-setup-smoke-${{ matrix.arch }}"
+          $installArgs = @('/S', "/D=$installRoot")
+          & $installer @installArgs
+          if ($LASTEXITCODE -ne 0) { throw "Silent installation failed with exit code $LASTEXITCODE" }
+          foreach ($relative in @('bin\nova-native.exe', 'bin\nova-native-backend.exe', 'bin\nova-native-host.exe', 'Uninstall.exe')) {
+            if (!(Test-Path (Join-Path $installRoot $relative))) { throw "Installed runtime is missing: $relative" }
+          }
+          & (Join-Path $installRoot 'Uninstall.exe') /S
+          if ($LASTEXITCODE -ne 0) { throw "Silent uninstall failed with exit code $LASTEXITCODE" }
+          if (Test-Path $installRoot) { throw "Uninstaller left files behind at $installRoot" }
+
+      - name: Create SHA-256 checksums
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem dist -Filter 'NOVA-Download-Manager-Setup-*.exe' | Sort-Object Name
+          if ($files.Count -ne 1) { throw "Expected exactly one setup for ${{ matrix.arch }}, found $($files.Count)" }
+          $line = "$( (Get-FileHash $files[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant() )  $($files[0].Name)"
+          Set-Content -Path dist\SHA256SUMS-${{ matrix.arch }}.txt -Value $line -Encoding ascii
+
+      - name: Upload versioned Windows setup
+        uses: actions/upload-artifact@v7
+        with:
+          name: NOVA-Windows-Setup-${{ github.ref_type == 'tag' && github.ref_name || format('preflight-{0}', github.run_id) }}-${{ matrix.arch }}
+          path: |
+            dist/NOVA-Download-Manager-Setup-*.exe
+            dist/SHA256SUMS-${{ matrix.arch }}.txt
+          if-no-files-found: error
+          retention-days: 30
+
+  publish-windows-installer:
+    name: Attach Windows setup to tagged release
+    needs: windows-installer
+    if: >-
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
+      (github.event_name == 'workflow_dispatch' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v'))
+    permissions:
+      actions: read
+      contents: write
+    runs-on: windows-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Download x64 and ARM64 setup artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: NOVA-Windows-Setup-${{ github.ref_name }}-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Attach installers and checksums to the GitHub draft release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installers = @(Get-ChildItem release-assets -Filter 'NOVA-Download-Manager-Setup-*.exe' | Sort-Object Name)
+          $checksums = @(Get-ChildItem release-assets -Filter 'SHA256SUMS-*.txt' | Sort-Object Name)
+          if ($installers.Count -ne 2 -or $checksums.Count -ne 2) { throw "Expected x64 and ARM64 installer/checksum pairs" }
+          $release = & gh release view $env:RELEASE_TAG --repo $env:REPOSITORY 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            & gh release create $env:RELEASE_TAG --repo $env:REPOSITORY --title "NOVA Download Manager $env:RELEASE_TAG" --generate-notes --draft --verify-tag
+            if ($LASTEXITCODE -ne 0) { throw "Could not create draft release for $env:RELEASE_TAG" }
+          }
+          & gh release upload $env:RELEASE_TAG @($installers.FullName) @($checksums.FullName) --repo $env:REPOSITORY --clobber
+          if ($LASTEXITCODE -ne 0) { throw "Could not attach Windows installers to $env:RELEASE_TAG" }
+
+      - name: Summarize downloadable Windows installers
+        run: |
+          echo "## Windows setup artifacts for ${{ github.ref_name }}" >> $env:GITHUB_STEP_SUMMARY
+          echo "- x64 and ARM64 per-user installers passed install/uninstall smoke checks." >> $env:GITHUB_STEP_SUMMARY
+          echo "- SHA-256 files are attached to the draft release." >> $env:GITHUB_STEP_SUMMARY

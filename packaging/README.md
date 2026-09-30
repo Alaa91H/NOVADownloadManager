@@ -1,31 +1,26 @@
-# Package manager distribution
+# Windows release package
 
-On every tagged release, CI runs `pnpm run packaging:manifests` and attaches
-generated manifests (under `packaging/` in the release assets) for:
+The Windows installer source is [`windows/nova-setup.nsi`](windows/nova-setup.nsi).
+It creates separate x64 and ARM64 per-user setup files from the matching native
+preview bundles, which already contain the Qt runtime, NOVA UI, Rust backend,
+and Native Messaging host. No third-party download executable is installed by
+the setup.
 
-- **Scoop** — `nova-download-manager.json`
-- **Homebrew** (cask) — `nova-download-manager.rb`
-- **winget** — `NOVA.DownloadManager.*.yaml` (3 files)
+For release-request commits, CI builds and silently installs/uninstalls both
+setups before it creates a tag. After the immutable tag passes the complete
+quality, Rust, Android, desktop, and CodeQL gates, CI rebuilds both installers,
+creates SHA-256 checksum files, and attaches them to the draft GitHub release.
+The installer job also runs for pull requests that touch desktop or packaging
+code, so installer regressions block those changes.
 
-The manifests carry the real release URLs and SHA-256 hashes, so publishing is
-just a matter of forwarding them to each package index:
+To compile locally, stage the Windows preview bundle at
+`preview/NOVA-Native-Windows-x64` or `preview/NOVA-Native-Windows-arm64`, create
+the `dist` directory, install NSIS 3.12.0, then invoke `makensis` from the
+repository root with `APP_VERSION`, `APP_FILE_VERSION`, `APP_ARCH`, and
+`APP_SOURCE_DIR` defines. The Windows CI workflow is the canonical release
+recipe and validates installation and removal on a clean runner.
 
-## Scoop
-1. Create/maintain a bucket repo (e.g. `Alaa91H/scoop-nova`).
-2. Copy `nova-download-manager.json` into `bucket/` and push.
-   Users then run `scoop bucket add nova https://github.com/Alaa91H/scoop-nova`
-   and `scoop install nova-download-manager`.
-
-## Homebrew (cask)
-1. Create/maintain a tap repo (`Alaa91H/homebrew-nova`).
-2. Copy `nova-download-manager.rb` into `Casks/` and push.
-   Users then run `brew install --cask alaa91h/nova/nova-download-manager`.
-
-## winget
-1. Fork [`microsoft/winget-pkgs`](https://github.com/microsoft/winget-pkgs).
-2. Place the three YAML files under
-   `manifests/n/NOVA/DownloadManager/<version>/` and open a PR.
-   Validate first with `winget validate` / `wingetcreate`.
-
-Auto-submission (opening these PRs from CI) needs a token with access to the
-target repos; wire it into the publish job when ready.
+The setup currently installs per-user under `%LOCALAPPDATA%`, creates a Start
+Menu shortcut, offers an optional desktop shortcut, registers an uninstaller,
+and uses the NOVA application icon and version metadata. Authenticode signing is
+not configured yet, so the generated setup files are unsigned.
