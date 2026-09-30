@@ -25,8 +25,9 @@ overrides:
   # internal `undici/lib/handler/wrap-handler.js`, hence the previous <8 pin).
   postcss: ">=8.5.23"
   undici: ">=8.9.0"
-  brace-expansion: ">=5.0.9"
-  # mpd-parser's compatible range still resolves to the vulnerable 0.8.13 lock entry.
+  # Keep transitive brace-expansion resolutions above the current advisory fixes.
+  brace-expansion: ">=5.0.12"
+  # mpd-parser's compatible range otherwise allowed a vulnerable older lock entry.
   '@xmldom/xmldom': 0.8.15
 
 allowBuilds:
