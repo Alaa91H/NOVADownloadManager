@@ -926,10 +926,14 @@ jobs:
       - name: Enforce native UI, localization, accessibility, and visual contracts
         run: pnpm run native:check
 
-      - name: Enforce browser extension lint and manifest policy
-        run: |
-          pnpm --filter nova-browser-extension exec eslint . --max-warnings 0
-          pnpm --filter nova-browser-extension validate:manifests
+      - name: Enforce browser extension lint with zero warnings
+        run: pnpm --filter nova-browser-extension exec eslint . --max-warnings 0
+
+      - name: Build browser extension packages
+        run: pnpm --filter nova-browser-extension build
+
+      - name: Validate packaged browser manifests
+        run: pnpm --filter nova-browser-extension validate:manifests
 
       - name: Reject whitespace defects in submitted source
         shell: bash
