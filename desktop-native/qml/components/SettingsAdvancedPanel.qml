@@ -15,6 +15,11 @@ ScrollView {
     property string languageToken: i18n.language
     property bool resetArmed: false
 
+    onVisibleChanged: {
+        if (!visible)
+            credentialSecretInput.clear()
+    }
+
     function t(key) {
         const token = root.languageToken
         return i18n.translate(key)
