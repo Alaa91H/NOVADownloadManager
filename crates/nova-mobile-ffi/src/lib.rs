@@ -1377,7 +1377,7 @@ fn mobile_codec_track_capabilities(
 pub fn native_media_codec_capabilities() -> MobileMediaCodecCapabilities {
     let capabilities = nova_media_processing_core::native_media_codec_capabilities();
     MobileMediaCodecCapabilities {
-        capability_registry_version: nova_core_model::CAPABILITY_REGISTRY_CONTRACT_VERSION,
+        capability_registry_version: nova_core_model::NATIVE_MEDIA_CODEC_REGISTRY_SCHEMA_VERSION,
         audio: mobile_codec_track_capabilities(capabilities.audio),
         video: mobile_codec_track_capabilities(capabilities.video),
         demuxers: capabilities.demuxers,
@@ -1548,7 +1548,7 @@ fn mobile_media_descriptor_json(descriptor: &MobileMediaDescriptor) -> String {
 fn mobile_media_codec_capabilities_json() -> String {
     let capabilities = nova_media_processing_core::native_media_codec_capabilities();
     serde_json::json!({
-        "capabilityRegistryVersion": nova_core_model::CAPABILITY_REGISTRY_CONTRACT_VERSION,
+        "capabilityRegistryVersion": nova_core_model::NATIVE_MEDIA_CODEC_REGISTRY_SCHEMA_VERSION,
         "audio": capabilities.audio,
         "video": capabilities.video,
         "demuxers": capabilities.demuxers,
@@ -2344,7 +2344,7 @@ mod tests {
                 .expect("codec capability JSON");
         assert_eq!(
             value["capabilityRegistryVersion"],
-            nova_core_model::CAPABILITY_REGISTRY_CONTRACT_VERSION
+            nova_core_model::NATIVE_MEDIA_CODEC_REGISTRY_SCHEMA_VERSION
         );
         assert!(value["audio"]["decoders"].is_array());
         assert!(value["audio"]["encoders"].is_array());

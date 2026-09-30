@@ -10,9 +10,11 @@
 
 **Spec:** [`docs/architecture/NOVA_UNIFIED_CONTROL_PLANE_AR.md`](../../architecture/NOVA_UNIFIED_CONTROL_PLANE_AR.md)
 
-## سجل التنفيذ الحالي — 2026-09-29
+## سجل التنفيذ الحالي — 2026-09-30
 
 هذه الخطة ما زالت **قيد التنفيذ**؛ الحالات التالية تصف العمل الموجود في الشجرة ولا تعني اجتياز التحقق أو اكتمال parity:
+
+- **متابعة CP-01:** أضاف daemon سجل capabilityRegistry موحدًا بإصدار 2 يبنيه من حالات libcurl ومحرك الوسائط والتورنت وأوامر التحكم الفعلية، ويضم المنصة والقيود والسبب والعمليات والأحداث ومراجع المصدر. صار browser-extension يتحقق من العقد. تبقى clientAdapters فارغة إلى أن ترتبط بأدلة parity؛ وما زال Android يعلن سجل codecs منفصلًا فقط، لذا تظل CP-01 جزئية.
 
 - **CP-01 جزئي:** Runtime يعلن Control Plane command/query capabilities، وسجل media native مأخوذ من قدرات codecs المبنية. يوجد manifest وفاحص CI يمنعان إضافة command/query/event غير مسجل أو وسمه `complete` بلا تغطية العملاء وأدلة اختبارات العقود.
 - **CP-02 جزئي:** عقود v1 وCommand Bus وpermission scopes وidempotency داخل العملية وbest-effort batch موجودة. لا يزال RBAC/scoped-token store غير منفذ، وatomic batch غير متاح.

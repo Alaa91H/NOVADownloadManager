@@ -36,7 +36,7 @@ pub const CONTROL_EVENT_TYPES: &[&str] = &[
 pub const MAX_COMMAND_BATCH_SIZE: usize = 128;
 
 /// Runtime-visible availability values shared by all control-plane adapters.
-#[derive(Clone, Copy, Debug, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum CapabilityStatus {
     Supported,

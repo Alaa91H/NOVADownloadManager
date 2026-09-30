@@ -7,7 +7,9 @@
 
 use serde::{Deserialize, Serialize};
 
+mod capability_registry;
 pub mod control_plane;
+pub use capability_registry::{CapabilityEntry, CapabilityRegistry};
 pub use control_plane::{
     BatchMode, CapabilityStatus, CommandEnvelope, CommandScope, ControlCommand, ControlEvent,
     ControlPlaneCapability, ControlQuery, Principal, QueryEnvelope, QueryPage, StructuredError,
@@ -20,8 +22,11 @@ pub use control_plane::{
 /// browser-extension and mobile clients.
 pub const RUNTIME_CAPABILITIES_CONTRACT_VERSION: u32 = 1;
 
-/// Version of the detailed per-engine capability registry payload.
-pub const CAPABILITY_REGISTRY_CONTRACT_VERSION: u32 = 1;
+/// Version of the unified runtime capability registry contract.
+pub const CAPABILITY_REGISTRY_CONTRACT_VERSION: u32 = 2;
+
+/// Version of the native media codec and container registry payload.
+pub const NATIVE_MEDIA_CODEC_REGISTRY_SCHEMA_VERSION: u32 = 1;
 
 /// Canonical task states that can appear on the public wire schema.
 ///

@@ -21,7 +21,29 @@ export const TaskLifecycleStateSchema = z.enum([
   'queued','preparing','probing','downloading','pausing','paused',
   'retrying','recovering','verifying','finalizing','completed','error','interrupted',
 ]);
-export const RuntimeEngineCapabilitiesSchema = z.record(z.string(), z.unknown()).optional();
+export const CapabilityStatusSchema = z.enum([
+  'supported', 'unavailable', 'experimental', 'platformRestricted',
+]);
+export const CapabilityEntrySchema = z.object({
+  id: z.string().min(1),
+  version: z.number().int().min(1),
+  status: CapabilityStatusSchema,
+  platforms: z.array(z.string()).default([]),
+  clientAdapters: z.record(z.string(), CapabilityStatusSchema).default({}),
+  operations: z.array(z.string()).default([]),
+  events: z.array(z.string()).default([]),
+  constraints: z.record(z.string(), z.unknown()).default({}),
+  reason: z.string().optional(),
+  evidence: z.array(z.string()).default([]),
+}).passthrough();
+export const CapabilityRegistrySchema = z.object({
+  schemaVersion: z.number().int().min(1),
+  sourceOfTruth: z.literal('rust-runtime'),
+  entries: z.array(CapabilityEntrySchema),
+}).passthrough();
+export const RuntimeEngineCapabilitiesSchema = z.object({
+  capabilityRegistry: CapabilityRegistrySchema.optional(),
+}).passthrough().optional();
 export const CapabilitiesSchema = z.object({
   contractVersion: z.number().int().min(1).default(1),
   capabilityRegistryVersion: z.number().int().min(1).optional(),

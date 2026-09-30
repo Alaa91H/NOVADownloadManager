@@ -1232,7 +1232,7 @@ pub fn native_media_status() -> Value {
             "subtitleContainers": &available.subtitle_containers
         });
         let native_codec_registry = json!({
-            "schemaVersion": nova_core_model::CAPABILITY_REGISTRY_CONTRACT_VERSION,
+            "schemaVersion": nova_core_model::NATIVE_MEDIA_CODEC_REGISTRY_SCHEMA_VERSION,
             "source": "nova-media-processing-core",
             "status": "supported",
             "containers": {
@@ -1671,9 +1671,16 @@ pub fn all_engine_status(ffmpeg_bin: &str) -> Value {
             }
         }
     }
+    let capability_registry = super::capability_registry::build_runtime_capability_registry(
+        &curl,
+        &media,
+        &torrent,
+        &command_capabilities,
+    );
     json!({
         "contractVersion": nova_core_model::RUNTIME_CAPABILITIES_CONTRACT_VERSION,
         "capabilityRegistryVersion": nova_core_model::CAPABILITY_REGISTRY_CONTRACT_VERSION,
+        "capabilityRegistry": capability_registry,
         "controlPlaneContractVersion": nova_core_model::CONTROL_PLANE_CONTRACT_VERSION,
         "controlPlane": {
             "capabilityRegistryVersion": nova_core_model::CONTROL_PLANE_CAPABILITY_REGISTRY_VERSION,
@@ -1755,7 +1762,7 @@ mod tests {
         assert_eq!(status["runtimeCore"], "nova-media-core");
         assert_eq!(
             status["capabilities"]["nativeCodecRegistry"]["schemaVersion"],
-            nova_core_model::CAPABILITY_REGISTRY_CONTRACT_VERSION
+            nova_core_model::NATIVE_MEDIA_CODEC_REGISTRY_SCHEMA_VERSION
         );
         assert_eq!(
             status["capabilities"]["nativeCodecRegistry"]["source"],

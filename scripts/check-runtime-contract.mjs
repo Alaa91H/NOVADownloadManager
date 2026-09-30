@@ -5,6 +5,7 @@ const root = process.cwd();
 const read = (path) => fs.readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 const contract = JSON.parse(read('docs/contracts/runtime-capabilities.json'));
 const rustModel = read('crates/nova-core-model/src/lib.rs');
+const capabilityRegistryModel = read('crates/nova-core-model/src/capability_registry.rs');
 const engineCapabilities = read('src-tauri/src/daemon/engine_capabilities.rs');
 const engineRoutes = read('src-tauri/src/daemon/routes/engine.rs');
 const extensionSchema = read('browser-extension/src/contracts/capabilities.schema.ts');
@@ -40,15 +41,18 @@ for (const [name, fixture] of Object.entries(contract.fixtures ?? {})) {
 
 const requiredSourceFragments = [
   [rustModel, 'RUNTIME_CAPABILITIES_CONTRACT_VERSION: u32 = 1', 'Rust contract version'],
-  [rustModel, 'CAPABILITY_REGISTRY_CONTRACT_VERSION: u32 = 1', 'Rust capability registry version'],
+  [rustModel, 'CAPABILITY_REGISTRY_CONTRACT_VERSION: u32 = 2', 'Rust capability registry version'],
+  [capabilityRegistryModel, 'pub struct CapabilityRegistry', 'shared capability registry model'],
+  [extensionSchema, 'CapabilityRegistrySchema', 'extension capability registry schema'],
   [rustModel, 'TASK_LIFECYCLE_WIRE_STATES', 'Rust lifecycle state list'],
   [engineCapabilities, '"contractVersion": nova_core_model::RUNTIME_CAPABILITIES_CONTRACT_VERSION', 'daemon contract version'],
   [engineCapabilities, '"capabilityRegistryVersion": nova_core_model::CAPABILITY_REGISTRY_CONTRACT_VERSION', 'daemon capability registry version'],
+  [engineCapabilities, '"capabilityRegistry": capability_registry', 'daemon unified registry output'],
   [engineCapabilities, '"cancelSemantics": "remove"', 'daemon cancel semantics'],
   [engineRoutes, '"taskLifecycle": status.get("taskLifecycle")', 'extension capability lifecycle propagation'],
   [extensionSchema, 'contractVersion: z.number().int().min(1)', 'extension contract version schema'],
   [extensionSchema, 'capabilityRegistryVersion: z.number().int().min(1)', 'extension capability registry version schema'],
-  [mobileFfi, '"capabilityRegistryVersion": nova_core_model::CAPABILITY_REGISTRY_CONTRACT_VERSION', 'Android FFI capability registry version'],
+  [mobileFfi, '"capabilityRegistryVersion": nova_core_model::NATIVE_MEDIA_CODEC_REGISTRY_SCHEMA_VERSION', 'Android codec registry version'],
   [androidNativeCore, 'capabilityRegistryVersion = root.optInt("capabilityRegistryVersion", 0)', 'Android capability registry version parsing'],
   [desktopMediaPage, 'capabilities.nativeCodecRegistry', 'Qt media capability registry consumption'],
   [extensionSchema, "cancelSemantics: z.literal('remove')", 'extension cancel semantics schema'],

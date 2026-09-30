@@ -1,4 +1,5 @@
 pub mod browser_cookies;
+pub mod capability_registry;
 pub mod command_bus;
 pub mod curl;
 pub mod diagnostics;
