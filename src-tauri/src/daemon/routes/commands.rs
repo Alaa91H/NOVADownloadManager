@@ -813,9 +813,9 @@ fn require_runtime_capability(
         .pointer("/capabilityRegistry/entries")
         .and_then(Value::as_array)
         .and_then(|entries| {
-            entries.iter().find(|entry| {
-                entry.get("id").and_then(Value::as_str) == Some(capability_id)
-            })
+            entries
+                .iter()
+                .find(|entry| entry.get("id").and_then(Value::as_str) == Some(capability_id))
         })
         .and_then(|entry| entry.get("status"))
         .and_then(Value::as_str)

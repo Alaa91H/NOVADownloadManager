@@ -1651,9 +1651,9 @@ pub fn all_engine_status(ffmpeg_bin: &str) -> Value {
         for entry in entries {
             let id = entry.get("id").and_then(Value::as_str).unwrap_or_default();
             let unavailable_reason = match id {
-                "addDownload" if !direct_ready && !torrent_ready => Some(
-                    "Direct download and torrent backends are unavailable in this runtime.",
-                ),
+                "addDownload" if !direct_ready && !torrent_ready => {
+                    Some("Direct download and torrent backends are unavailable in this runtime.")
+                }
                 "addMediaDownload" | "addMediaPlaylist" if !media_extraction_ready => {
                     Some("Native media extraction is unavailable in this runtime.")
                 }
