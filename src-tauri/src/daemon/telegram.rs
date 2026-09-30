@@ -274,6 +274,36 @@ fn run_control_query(
         .map_err(|error| error.message)
 }
 
+fn run_events_query(
+    state: &SharedState,
+    rt: &tokio::runtime::Handle,
+    cursor: Option<String>,
+) -> Result<String, String> {
+    match rt.block_on(crate::daemon::routes::commands::query_legacy(
+        state,
+        nova_core_model::ControlQuery::Events {
+            cursor,
+            limit: Some(20),
+        },
+    )) {
+        Ok(value) => Ok(events_reply(&value)),
+        Err(error) if error.code == "event_cursor_expired" => {
+            let restart_cursor = error
+                .details
+                .as_ref()
+                .and_then(|details| details.get("restartCursor"))
+                .and_then(serde_json::Value::as_u64);
+            match restart_cursor {
+                Some(cursor) => Err(format!(
+                    "Event history has expired; continue with /events {cursor}."
+                )),
+                None => Err(error.message),
+            }
+        }
+        Err(error) => Err(error.message),
+    }
+}
+
 fn parse_json_argument(arg: &str) -> Result<serde_json::Value, String> {
     serde_json::from_str(arg.trim()).map_err(|error| format!("Invalid JSON: {error}"))
 }
@@ -493,15 +523,7 @@ fn handle_extended_control_command(
             } else {
                 Some(arg.trim().to_owned())
             };
-            run_control_query(
-                state,
-                rt,
-                Query::Events {
-                    cursor,
-                    limit: Some(20),
-                },
-            )
-            .map(|value| events_reply(&value))
+            run_events_query(state, rt, cursor)
         })()),
         "/logs" => Some((|| {
             let parts = arg.split_whitespace().collect::<Vec<_>>();

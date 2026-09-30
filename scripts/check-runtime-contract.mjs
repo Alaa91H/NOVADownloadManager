@@ -115,6 +115,8 @@ const requiredSourceFragments = [
   [telegramSource, 'Runtime capability registry v{registry_version}', 'Telegram capability registry summary'],
   [telegramSource, 'Query::GetTask', 'Telegram task inspection query'],
   [telegramSource, 'Query::Events', 'Telegram event query adapter'],
+  [telegramSource, 'fn run_events_query', 'Telegram event cursor recovery adapter'],
+  [telegramSource, 'event_cursor_expired', 'Telegram retained event cursor handling'],
   [telegramSource, 'Query::RecentLogs', 'Telegram sanitized log query adapter'],
   [telegramSource, 'task_inspection_reply', 'Telegram safe task summary'],
   [telegramSource, 'logs_reply', 'Telegram redacted log summary'],
