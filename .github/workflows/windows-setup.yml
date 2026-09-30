@@ -1,0 +1,163 @@
+name: Windows Setup Package
+
+on:
+  workflow_dispatch:
+    inputs:
+      runtime_run_id:
+        description: Successful NOVA CI run containing Windows preview artifacts
+        required: true
+        type: string
+        default: '36760122632'
+      runtime_sha:
+        description: Full commit SHA that produced those Windows preview artifacts
+        required: true
+        type: string
+        default: '9912ac951d6d4c028fa1a7e68bc509e3cbf58eaa'
+      source_ref:
+        description: Git ref containing the NSIS setup definition
+        required: true
+        type: string
+        default: main
+
+permissions: {}
+
+jobs:
+  setup:
+    name: Build and smoke-check Windows setup (${{ matrix.arch }})
+    runs-on: windows-latest
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, arm64]
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Validate runtime artifact provenance
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUNTIME_RUN_ID: ${{ inputs.runtime_run_id }}
+          RUNTIME_SHA: ${{ inputs.runtime_sha }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:RUNTIME_RUN_ID -notmatch '^\d+$') { throw 'runtime_run_id must contain digits only.' }
+          if ($env:RUNTIME_SHA -notmatch '^[0-9a-fA-F]{40}$') { throw 'runtime_sha must be a full 40-character commit SHA.' }
+          $headers = @{
+            Authorization = "Bearer $env:GH_TOKEN"
+            Accept = 'application/vnd.github+json'
+            'X-GitHub-Api-Version' = '2022-11-28'
+          }
+          $run = Invoke-RestMethod -Uri "https://api.github.com/repos/${{ github.repository }}/actions/runs/$env:RUNTIME_RUN_ID" -Headers $headers
+          if ($run.head_sha -ne $env:RUNTIME_SHA) { throw "Runtime run SHA mismatch: expected $env:RUNTIME_SHA, got $($run.head_sha)." }
+          $jobs = Invoke-RestMethod -Uri "https://api.github.com/repos/${{ github.repository }}/actions/runs/$env:RUNTIME_RUN_ID/jobs?per_page=100" -Headers $headers
+          foreach ($required in @('Strict code and security quality gate', 'Build native UI (windows-latest)', 'Build native UI (windows-11-vs2026-arm)')) {
+            $job = $jobs.jobs | Where-Object name -eq $required | Select-Object -First 1
+            if (!$job -or $job.conclusion -ne 'success') { throw "Required source job '$required' did not succeed for runtime artifact run $env:RUNTIME_RUN_ID." }
+          }
+          Write-Output "Verified runtime artifacts from $($run.head_sha)."
+
+      - name: Checkout installer definition
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.source_ref }}
+          persist-credentials: false
+
+      - name: Download matching native Windows runtime bundle
+        uses: actions/download-artifact@v8
+        with:
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.runtime_run_id }}
+          github-token: ${{ github.token }}
+          name: NOVA-Native-Preview-Windows-${{ matrix.arch }}-${{ inputs.runtime_sha }}
+          path: preview/NOVA-Native-Windows-${{ matrix.arch }}
+
+      - name: Validate runtime bundle contents
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bundle = "preview\NOVA-Native-Windows-${{ matrix.arch }}"
+          foreach ($relative in @('bin\nova-native.exe', 'bin\nova-native-backend.exe', 'bin\nova-native-host.exe')) {
+            if (!(Test-Path (Join-Path $bundle $relative) -PathType Leaf)) { throw "Runtime artifact is missing $relative" }
+          }
+
+      - name: Install pinned NSIS compiler
+        shell: pwsh
+        run: choco install nsis --version=3.12.0 --yes --no-progress
+
+      - name: Resolve application version
+        id: version
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $request = Get-Content .github/release-request.json -Raw | ConvertFrom-Json
+          $version = [string]$request.version
+          if ($version -notmatch '^(?<major>0|[1-9]\d*)\.(?<minor>0|[1-9]\d*)\.(?<patch>0|[1-9]\d*)(?<suffix>-[0-9A-Za-z.-]+)?$') { throw "Invalid setup version: $version" }
+          "app_version=$version" >> $env:GITHUB_OUTPUT
+          "compiler_version=$($Matches.major).$($Matches.minor).$($Matches.patch).0" >> $env:GITHUB_OUTPUT
+
+      - name: Compile Windows setup
+        shell: pwsh
+        env:
+          APP_VERSION: ${{ steps.version.outputs.app_version }}
+          APP_FILE_VERSION: ${{ steps.version.outputs.compiler_version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $appSource = (Resolve-Path "preview\NOVA-Native-Windows-${{ matrix.arch }}").Path
+          $icon = (Resolve-Path 'desktop-native\resources\icons\icon.ico').Path
+          $installerPath = "dist\NOVA-Download-Manager-Setup-$env:APP_VERSION-${{ matrix.arch }}.exe"
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $compilerCommand = Get-Command makensis.exe -ErrorAction SilentlyContinue
+          $compilerCandidates = @(
+            (Join-Path ${env:ProgramFiles(x86)} 'NSIS\makensis.exe'),
+            (Join-Path $env:ProgramFiles 'NSIS\makensis.exe'),
+            $compilerCommand.Source
+          )
+          $compiler = $compilerCandidates | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) } | Select-Object -First 1
+          if (!$compiler) { throw 'Pinned NSIS installation did not expose makensis.exe.' }
+          if (!(Test-Path -LiteralPath $icon -PathType Leaf)) { throw "Installer icon is missing: $icon" }
+          & $compiler "/DAPP_VERSION=$env:APP_VERSION" "/DAPP_FILE_VERSION=$env:APP_FILE_VERSION" "/DAPP_ARCH=${{ matrix.arch }}" "/DAPP_SOURCE_DIR=$appSource" /NOCD 'packaging\windows\nova-setup.nsi'
+          if ($LASTEXITCODE -ne 0) { throw "NSIS setup compilation failed with exit code $LASTEXITCODE" }
+          if (!(Test-Path -LiteralPath $installerPath -PathType Leaf)) { throw "Expected installer was not created: $installerPath" }
+          Write-Output "Built setup: $installerPath"
+
+      - name: Install and uninstall smoke check
+        shell: pwsh
+        env:
+          APP_VERSION: ${{ steps.version.outputs.app_version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = (Resolve-Path "dist\NOVA-Download-Manager-Setup-$env:APP_VERSION-${{ matrix.arch }}.exe").Path
+          $installRoot = Join-Path $env:RUNNER_TEMP "nova-setup-smoke-${{ matrix.arch }}"
+          & $installer '/S' "/D=$installRoot"
+          if ($LASTEXITCODE -ne 0) { throw "Silent install failed with exit code $LASTEXITCODE" }
+          foreach ($relative in @('bin\nova-native.exe', 'bin\nova-native-backend.exe', 'bin\nova-native-host.exe', 'Uninstall.exe')) {
+            if (!(Test-Path (Join-Path $installRoot $relative) -PathType Leaf)) { throw "Installed runtime is missing: $relative" }
+          }
+          & (Join-Path $installRoot 'Uninstall.exe') '/S'
+          if ($LASTEXITCODE -ne 0) { throw "Silent uninstall failed with exit code $LASTEXITCODE" }
+          if (Test-Path $installRoot) { throw "Uninstaller left files behind at $installRoot" }
+
+      - name: Create SHA-256 checksum
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem dist -Filter 'NOVA-Download-Manager-Setup-*.exe' | Select-Object -First 1
+          if (!$installer) { throw 'No setup executable was produced.' }
+          $line = "$((Get-FileHash $installer.FullName -Algorithm SHA256).Hash.ToLowerInvariant())  $($installer.Name)"
+          Set-Content -Path "dist\SHA256SUMS-${{ matrix.arch }}.txt" -Value $line -Encoding ascii
+
+      - name: Upload Windows setup artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: NOVA-Windows-Setup-${{ github.run_id }}-${{ matrix.arch }}
+          path: |
+            dist/NOVA-Download-Manager-Setup-*.exe
+            dist/SHA256SUMS-${{ matrix.arch }}.txt
+          if-no-files-found: error
+          retention-days: 30
