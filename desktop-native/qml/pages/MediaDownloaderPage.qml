@@ -31,6 +31,12 @@ Item {
         return api.runtimeCapabilitySupported(id)
     }
 
+    function transcodeCapabilitySupported(track) {
+        if (track === "video")
+            return root.capabilitySupported("media.videoTranscode")
+        return root.capabilitySupported("media.audioTranscode")
+    }
+
     function urlLooksLikePlaylist(value) {
         return /[?&]list=[^&]+/.test(String(value || ""))
     }
@@ -86,8 +92,7 @@ Item {
 
     function outputContainerOptions(track) {
         const options = [{ label: root.t("media.sourceFormat"), value: "auto" }]
-        const capabilityId = track === "video" ? "media.videoTranscode" : "media.audioTranscode"
-        if (!root.capabilitySupported("media.nativeMux") || !root.capabilitySupported(capabilityId))
+        if (!root.capabilitySupported("media.nativeMux") || !root.transcodeCapabilitySupported(track))
             return options
         const engines = api.engineCapabilities.engines || ({})
         const media = engines.media || ({})
@@ -109,8 +114,7 @@ Item {
         const options = [{ label: root.t("media.streamCopy"), value: "copy" }]
         if (String(container || "auto") === "auto")
             return options
-        const capabilityId = track === "video" ? "media.videoTranscode" : "media.audioTranscode"
-        if (!root.capabilitySupported("media.nativeMux") || !root.capabilitySupported(capabilityId))
+        if (!root.capabilitySupported("media.nativeMux") || !root.transcodeCapabilitySupported(track))
             return options
         const engines = api.engineCapabilities.engines || ({})
         const media = engines.media || ({})
