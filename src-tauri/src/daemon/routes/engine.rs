@@ -1637,14 +1637,45 @@ mod tests {
     use std::io::Write;
     use std::path::{Path, PathBuf};
 
+    fn extension_status(
+        capability_ids: &[&str],
+        command_ids: &[&str],
+        mut additional_status: serde_json::Value,
+    ) -> serde_json::Value {
+        additional_status["contractVersion"] =
+            serde_json::json!(nova_core_model::RUNTIME_CAPABILITIES_CONTRACT_VERSION);
+        additional_status["capabilityRegistryVersion"] =
+            serde_json::json!(nova_core_model::CAPABILITY_REGISTRY_CONTRACT_VERSION);
+        additional_status["capabilityRegistry"] = serde_json::json!({
+            "schemaVersion": nova_core_model::CAPABILITY_REGISTRY_CONTRACT_VERSION,
+            "sourceOfTruth": "rust-runtime",
+            "entries": capability_ids.iter().map(|id| serde_json::json!({
+                "id": id,
+                "version": 1,
+                "status": "supported"
+            })).collect::<Vec<_>>()
+        });
+        additional_status["controlPlane"] = serde_json::json!({
+            "commandCapabilities": command_ids.iter().map(|id| serde_json::json!({
+                "id": id,
+                "status": "supported"
+            })).collect::<Vec<_>>()
+        });
+        additional_status
+    }
+
     #[test]
     fn extension_media_capabilities_do_not_require_postprocessing() {
-        let status = serde_json::json!({
-            "contractVersion": nova_core_model::RUNTIME_CAPABILITIES_CONTRACT_VERSION,
-            "capabilityRegistryVersion": nova_core_model::CAPABILITY_REGISTRY_CONTRACT_VERSION,
-            "directReady": true,
-            "mediaExtractionReady": true,
-            "streamingReady": true,
+        let status = extension_status(
+            &[
+                "media.extraction",
+                "media.hls",
+                "media.dash",
+                "media.subtitles",
+                "media.audioTracks",
+            ],
+            &["addMediaDownload"],
+            serde_json::json!({
             "postProcessingReady": false,
             "engines": {
                 "media": {
@@ -1660,7 +1691,8 @@ mod tests {
                     "supportedDirectOptionKeys": []
                 }
             }
-        });
+            }),
+        );
         let capabilities = extension_capabilities_from_status(&status);
         assert_eq!(
             capabilities["contractVersion"],
@@ -1690,9 +1722,10 @@ mod tests {
 
     #[test]
     fn extension_advertises_magnets_only_when_the_torrent_path_is_live() {
-        let ready_status = serde_json::json!({
-            "directReady": false,
-            "mediaExtractionReady": false,
+        let ready_status = extension_status(
+            &["torrent.core", "torrent.magnet", "torrent.file"],
+            &["addTorrent"],
+            serde_json::json!({
             "engines": {
                 "torrent": {
                     "available": true,
@@ -1703,7 +1736,8 @@ mod tests {
                     }
                 }
             }
-        });
+            }),
+        );
         let ready = extension_capabilities_from_status(&ready_status);
         let items = ready["items"].as_array().expect("capability items");
         assert!(items.iter().any(|item| item == "candidate.magnet"));
@@ -1715,9 +1749,13 @@ mod tests {
         );
         assert_eq!(ready["torrentMetainfoUrlReady"], true);
 
-        let unavailable_status = serde_json::json!({
-            "engines": { "torrent": { "available": false } }
-        });
+        let unavailable_status = extension_status(
+            &[],
+            &[],
+            serde_json::json!({
+                "engines": { "torrent": { "available": false } }
+            }),
+        );
         let unavailable = extension_capabilities_from_status(&unavailable_status);
         assert!(!unavailable["items"]
             .as_array()
