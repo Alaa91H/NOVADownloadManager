@@ -26,7 +26,6 @@ OutFile "dist\NOVA-Download-Manager-Setup-${APP_VERSION}-${APP_ARCH}.exe"
 InstallDir "$LOCALAPPDATA\Programs\NOVA Download Manager"
 InstallDirRegKey HKCU "${UNINSTALL_KEY}" "InstallLocation"
 RequestExecutionLevel user
-SetRegView 64
 SetCompressor /SOLID lzma
 SetCompressorDictSize 64
 ShowInstDetails show
@@ -51,6 +50,14 @@ VIAddVersionKey "LegalCopyright" "Copyright NOVA Download Manager contributors"
 !define MUI_FINISHPAGE_RUN_TEXT "Launch NOVA Download Manager"
 
 Var StartMenuFolder
+
+Function .onInit
+  SetRegView 64
+FunctionEnd
+
+Function un.onInit
+  SetRegView 64
+FunctionEnd
 
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_COMPONENTS
