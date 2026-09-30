@@ -432,6 +432,40 @@ fn events_reply(value: &serde_json::Value) -> String {
     reply
 }
 
+fn logs_reply(value: &serde_json::Value) -> String {
+    let Some(entries) = value.get("entries").and_then(serde_json::Value::as_array) else {
+        return "Logs: no data returned.".to_owned();
+    };
+    if entries.is_empty() {
+        return "No recent log entries.".to_owned();
+    }
+    let mut reply = format!("Recent logs ({})\n", entries.len());
+    for entry in entries.iter().rev().take(10) {
+        let timestamp = entry
+            .get("timestamp")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+        let level = entry
+            .get("level")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("INFO");
+        let message = entry
+            .get("message")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("")
+            .chars()
+            .take(240)
+            .collect::<String>();
+        reply.push_str(&format!(
+            "<code>{}</code> <b>{}</b> {}\n",
+            escape_html(timestamp),
+            escape_html(level),
+            escape_html(&message)
+        ));
+    }
+    reply
+}
+
 fn handle_extended_control_command(
     state: &SharedState,
     rt: &tokio::runtime::Handle,
@@ -468,6 +502,21 @@ fn handle_extended_control_command(
                 },
             )
             .map(|value| events_reply(&value))
+        })()),
+        "/logs" => Some((|| {
+            let parts = arg.split_whitespace().collect::<Vec<_>>();
+            if parts.len() > 1 {
+                return Err("Usage: /logs [trace|debug|info|warn|error]".to_owned());
+            }
+            run_control_query(
+                state,
+                rt,
+                Query::RecentLogs {
+                    limit: Some(20),
+                    level: parts.first().map(|level| (*level).to_owned()),
+                },
+            )
+            .map(|value| logs_reply(&value))
         })()),
         "/queues" | "/queue-list" => Some(
             run_control_query(state, rt, Query::ListQueues)
@@ -815,6 +864,7 @@ fn handle_telegram_command(
                     + "/list - List all downloads\n"
                     + "/inspect <id> - Show task state and progress\n"
                     + "/events [cursor] - Page through sanitized runtime events\n"
+                    + "/logs [level] - Show sanitized recent runtime logs\n"
                     + "/add <url> - Add download\n"
                     + "/media <url> - Add a native media download\n"
                     + "/pause <id> - Pause download\n"

@@ -1621,6 +1621,10 @@ pub fn all_engine_status(ffmpeg_bin: &str) -> Value {
         .pointer("/capabilities/directDownloads")
         .and_then(Value::as_bool)
         .unwrap_or(false);
+    let torrent_ready = torrent
+        .get("available")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     let native_mux_ready = media
         .pointer("/capabilities/nativeMp4MultitrackMux")
         .and_then(Value::as_bool)
@@ -1647,18 +1651,13 @@ pub fn all_engine_status(ffmpeg_bin: &str) -> Value {
         for entry in entries {
             let id = entry.get("id").and_then(Value::as_str).unwrap_or_default();
             let unavailable_reason = match id {
-                "addDownload" if !direct_ready => {
-                    Some("Direct download backend is unavailable in this runtime.")
-                }
+                "addDownload" if !direct_ready && !torrent_ready => Some(
+                    "Direct download and torrent backends are unavailable in this runtime.",
+                ),
                 "addMediaDownload" | "addMediaPlaylist" if !media_extraction_ready => {
                     Some("Native media extraction is unavailable in this runtime.")
                 }
-                "addTorrent"
-                    if !torrent
-                        .get("available")
-                        .and_then(Value::as_bool)
-                        .unwrap_or(false) =>
-                {
+                "addTorrent" if !torrent_ready => {
                     Some("Native torrent engine is unavailable in this runtime.")
                 }
                 _ => None,

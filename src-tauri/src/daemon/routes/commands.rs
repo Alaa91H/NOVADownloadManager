@@ -563,19 +563,24 @@ async fn execute_single(
     match command {
         ControlCommand::AddDownload { request } => {
             let body = decode_request::<CreateDownloadBody>(request)?;
-            let is_magnet = body.url.as_deref().is_some_and(|url| {
-                url.trim()
+            if let Some(url) = body
+                .url
+                .as_deref()
+                .map(str::trim)
+                .filter(|url| !url.is_empty())
+            {
+                let is_magnet = url
                     .get(..7)
-                    .is_some_and(|scheme| scheme.eq_ignore_ascii_case("magnet:"))
-            });
-            require_runtime_capability(
-                state,
-                if is_magnet {
-                    "torrent.core"
-                } else {
-                    "download.direct"
-                },
-            )?;
+                    .is_some_and(|scheme| scheme.eq_ignore_ascii_case("magnet:"));
+                require_runtime_capability(
+                    state,
+                    if is_magnet {
+                        "torrent.core"
+                    } else {
+                        "download.direct"
+                    },
+                )?;
+            }
             match downloads::create_download_service(state.clone(), body).await {
                 Ok(task) => to_value(task),
                 Err((status, Json(body))) => Err(route_error(state, status, body)),
