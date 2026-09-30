@@ -418,6 +418,44 @@ pub async fn create_torrent_task(
     get_torrent_task(state, &id).ok_or_else(|| "Torrent task disappeared after creation".to_owned())
 }
 
+/// Applies queue and bandwidth policy selected by the shared download Rules
+/// engine before a magnet task is started.
+pub fn apply_torrent_rule_overrides(
+    state: &SharedState,
+    id: &str,
+    category: Option<String>,
+    queue_id: Option<String>,
+    priority: Option<DownloadPriority>,
+    rate_limit_kbps: Option<u64>,
+) -> Result<Task, String> {
+    let task = {
+        let mut jobs = lock_or_err!(state.torrent_jobs);
+        let job = jobs
+            .get_mut(id)
+            .ok_or_else(|| "Torrent task disappeared while applying Rules policy".to_owned())?;
+        if let Some(category) = category {
+            job.task.category = category;
+        }
+        if let Some(queue_id) = queue_id {
+            job.task.queue_id = queue_id;
+        }
+        if let Some(priority) = priority {
+            job.priority = priority;
+        }
+        job.task.clone()
+    };
+
+    if let Some(priority) = priority {
+        state.priority_queue.set_priority(id, priority);
+    }
+    if let Some(kbps) = rate_limit_kbps {
+        state.bandwidth_manager.set_task_limit(id.to_owned(), kbps);
+    }
+    lock_or_err!(state.task_snapshot).insert(id.to_owned(), task.clone());
+    state.mark_dirty();
+    Ok(task)
+}
+
 fn existing_torrent_task_id<'a>(
     mut tasks: impl Iterator<Item = &'a Task>,
     info_hash: &str,

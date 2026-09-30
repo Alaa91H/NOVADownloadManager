@@ -410,7 +410,28 @@ pub(crate) async fn create_download_service(
         ));
     }
 
+    let (rule_priority, rule_mirrors, rule_rate_limit, applied_rules) =
+        apply_download_rules(&state, &mut body, &url).map_err(|error| {
+            (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(serde_json::json!({"error": error})),
+            )
+        })?;
+
     if url.trim().to_ascii_lowercase().starts_with("magnet:") {
+        if let Some((_, action)) = applied_rules.iter().find(|(_, action)| {
+            matches!(
+                action.as_str(),
+                "addHeader" | "addMirror" | "requireChecksum"
+            )
+        }) {
+            return Err((
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(serde_json::json!({
+                    "error": format!("A matching rule uses {action}, which is not supported for torrent tasks")
+                })),
+            ));
+        }
         let save_path = body
             .save_path
             .as_deref()
@@ -438,7 +459,9 @@ pub(crate) async fn create_download_service(
                 analysis_id: analysis.analysis_id,
                 save_path,
                 allow_duplicate: false,
-                start_immediately: body.start_immediately,
+                // Apply matching queue and bandwidth policy before the task
+                // can start, just as the direct-download path does.
+                start_immediately: Some(false),
                 file_priorities: None,
                 connections: body.connections,
                 seeding: None,
@@ -451,17 +474,34 @@ pub(crate) async fn create_download_service(
                 Json(serde_json::json!({"error": error})),
             )
         })?;
+        let task = crate::daemon::torrent_task::apply_torrent_rule_overrides(
+            &state,
+            &task.id,
+            body.category,
+            body.queue_id,
+            rule_priority,
+            rule_rate_limit,
+        )
+        .map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": error})),
+            )
+        })?;
+        register_task_with_engine(&state, &task, None, Vec::new(), None, applied_rules);
+        if body.start_immediately.unwrap_or(true) {
+            crate::daemon::torrent_task::start_torrent_process(&state, &task.id).map_err(
+                |error| {
+                    (
+                        StatusCode::UNPROCESSABLE_ENTITY,
+                        Json(serde_json::json!({"error": error})),
+                    )
+                },
+            )?;
+        }
         telegram_notify(&state, &format!("Torrent added: {}", task.name)).await;
         return Ok(task);
     }
-
-    let (rule_priority, rule_mirrors, rule_rate_limit, applied_rules) =
-        apply_download_rules(&state, &mut body, &url).map_err(|e| {
-            (
-                StatusCode::UNPROCESSABLE_ENTITY,
-                Json(serde_json::json!({"error": e})),
-            )
-        })?;
 
     // ── Accept Immediately → Resolve Concurrently ──────────────────────────
     // Try the synchronous fast-path first (we already have a filename).
