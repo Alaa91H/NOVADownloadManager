@@ -1176,7 +1176,16 @@ jobs:
           $appSource = "preview\NOVA-Native-Windows-${{ matrix.arch }}"
           $installerPath = "dist\NOVA-Download-Manager-Setup-$env:APP_VERSION-${{ matrix.arch }}.exe"
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          $compiler = (Get-Command makensis.exe -ErrorAction Stop).Source
+          $compilerCommand = Get-Command makensis.exe -ErrorAction SilentlyContinue
+          $compilerCandidates = @(
+            (Join-Path ${env:ProgramFiles(x86)} 'NSIS\makensis.exe'),
+            (Join-Path $env:ProgramFiles 'NSIS\makensis.exe'),
+            $compilerCommand.Source
+          )
+          $compiler = $compilerCandidates |
+            Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) } |
+            Select-Object -First 1
+          if (!$compiler) { throw 'Pinned NSIS installation did not expose makensis.exe in a known install path or PATH.' }
           & $compiler "/DAPP_VERSION=$env:APP_VERSION" "/DAPP_FILE_VERSION=$env:APP_FILE_VERSION" "/DAPP_ARCH=${{ matrix.arch }}" "/DAPP_SOURCE_DIR=$appSource" "packaging\windows\nova-setup.nsi"
           if ($LASTEXITCODE -ne 0) { throw "NSIS setup compilation failed with exit code $LASTEXITCODE" }
           if (!(Test-Path $installerPath)) { throw "Expected installer was not created: $installerPath" }
