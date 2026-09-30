@@ -10,7 +10,7 @@ package com.nova.downloadmanager.core
  */
 internal object NovaNativeCore {
     private const val LIBRARY_NAME = "nova_mobile_ffi"
-    private const val CLIENT_BRIDGE_API_VERSION = 4
+    private const val CLIENT_BRIDGE_API_VERSION = 5
     private const val RESUME_APPEND = 0
     private const val RESUME_RESTART = 1
     private const val MISSING_CONTENT_RANGE = -1L
@@ -114,6 +114,29 @@ internal object NovaNativeCore {
         val engine: String,
     )
 
+    internal data class NativeCapabilityEntry(
+        val id: String,
+        val version: Int,
+        val status: String,
+        val platforms: List<String>,
+        val clientAdapters: Map<String, String>,
+        val operations: List<String>,
+        val events: List<String>,
+        val constraintsJson: String,
+        val reason: String?,
+        val evidence: List<String>,
+    )
+
+    internal data class NativeCapabilityRegistry(
+        val schemaVersion: Int,
+        val sourceOfTruth: String,
+        val entries: List<NativeCapabilityEntry>,
+    ) {
+        fun supports(id: String): Boolean = entries.any { entry ->
+            entry.id == id && entry.status == "supported" && "android" in entry.platforms
+        }
+    }
+
     internal data class NativeMediaTranscodeOptions(
         val inputContainer: String,
         val sourceVideoCodec: String? = null,
@@ -186,6 +209,8 @@ internal object NovaNativeCore {
     ): String
 
     private external fun nativeMediaCodecCapabilitiesJson(): String
+
+    private external fun nativeRuntimeCapabilityRegistryJson(): String
 
     private external fun nativeTranscodeMediaJson(
         taskId: String,
@@ -439,6 +464,74 @@ internal object NovaNativeCore {
             muxers = strings(root.optJSONArray("muxers")),
             subtitleContainers = strings(root.optJSONArray("subtitleContainers")),
             engine = root.optString("engine", "nova-native-codecs"),
+        )
+    }
+
+    fun runtimeCapabilityRegistry(): NativeCapabilityRegistry {
+        requireCompatible()
+        val root = org.json.JSONObject(nativeRuntimeCapabilityRegistryJson())
+        check(root.optString("sourceOfTruth") == "rust-runtime") {
+            "NOVA Android capability registry has an unknown source of truth"
+        }
+        val entriesJson = root.getJSONArray("entries")
+
+        fun strings(array: org.json.JSONArray?): List<String> = buildList {
+            if (array == null) return@buildList
+            for (index in 0 until array.length()) {
+                array.optString(index).takeIf(String::isNotBlank)?.let(::add)
+            }
+        }
+
+        val allowedStatuses = setOf(
+            "supported",
+            "unavailable",
+            "experimental",
+            "platformRestricted",
+        )
+        val entries = buildList {
+            for (index in 0 until entriesJson.length()) {
+                val value = entriesJson.getJSONObject(index)
+                val status = value.getString("status")
+                check(status in allowedStatuses) {
+                    "NOVA returned an unknown capability status: $status"
+                }
+                val adaptersJson = value.optJSONObject("clientAdapters") ?: org.json.JSONObject()
+                val adapters = buildMap {
+                    adaptersJson.keys().forEach { client ->
+                        val clientStatus = adaptersJson.getString(client)
+                        check(clientStatus in allowedStatuses) {
+                            "NOVA returned an unknown adapter status: $clientStatus"
+                        }
+                        put(client, clientStatus)
+                    }
+                }
+                add(
+                    NativeCapabilityEntry(
+                        id = value.getString("id").also { check(it.isNotBlank()) },
+                        version = value.getInt("version").also { check(it > 0) },
+                        status = status,
+                        platforms = strings(value.optJSONArray("platforms")),
+                        clientAdapters = adapters,
+                        operations = strings(value.optJSONArray("operations")),
+                        events = strings(value.optJSONArray("events")),
+                        constraintsJson = value.optJSONObject("constraints")?.toString() ?: "{}",
+                        reason = if (value.isNull("reason")) {
+                            null
+                        } else {
+                            value.optString("reason").takeIf(String::isNotBlank)
+                        },
+                        evidence = strings(value.optJSONArray("evidence")),
+                    ),
+                )
+            }
+        }
+        check(entries.map { it.id }.toSet().size == entries.size) {
+            "NOVA Android capability registry contains duplicate IDs"
+        }
+        return NativeCapabilityRegistry(
+            schemaVersion = root.getInt("schemaVersion").also { check(it > 0) },
+            sourceOfTruth = root.getString("sourceOfTruth"),
+            entries = entries,
         )
     }
 

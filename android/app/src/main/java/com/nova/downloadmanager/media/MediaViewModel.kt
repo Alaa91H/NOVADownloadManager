@@ -31,6 +31,7 @@ internal data class MediaUiState(
     val sourceName: String? = null,
     val sourceRelativePath: String? = null,
     val inputContainer: String? = null,
+    val capabilityRegistry: NovaNativeCore.NativeCapabilityRegistry? = null,
     val codecCapabilities: NovaNativeCore.NativeMediaCodecCapabilities? = null,
     val capabilitiesError: String? = null,
     val includeVideo: Boolean = true,
@@ -57,13 +58,17 @@ internal class MediaViewModel(application: Application) : AndroidViewModel(appli
 
     init {
         viewModelScope.launch(Dispatchers.IO) {
-            val result = runCatching { NovaNativeCore.mediaCodecCapabilities() }
+            val result = runCatching {
+                NovaNativeCore.runtimeCapabilityRegistry() to NovaNativeCore.mediaCodecCapabilities()
+            }
             mutableUiState.value = result.fold(
-                onSuccess = { caps ->
+                onSuccess = { (registry, caps) ->
                     mutableUiState.value.copy(
+                        capabilityRegistry = registry,
                         codecCapabilities = caps,
                         outputContainer = chooseOutputContainers(caps, includeVideo = true, includeAudio = true)
-                            .firstOrNull(),
+                            .firstOrNull()
+                            .takeIf { registry.supports("media.nativeMux") },
                         capabilitiesError = null,
                     ).withDefaultCodecs(caps)
                 },
@@ -214,6 +219,18 @@ internal class MediaViewModel(application: Application) : AndroidViewModel(appli
 
     fun convert() {
         val current = mutableUiState.value
+        val registry = current.capabilityRegistry
+        if (registry == null ||
+            !registry.supports("media.nativeMux") ||
+            (current.includeVideo && !registry.supports("media.videoTranscode")) ||
+            (current.includeAudio && !registry.supports("media.audioTranscode"))
+        ) {
+            mutableUiState.value = current.copy(
+                errorMessage = "The selected native conversion is unavailable in this Android build.",
+                errorMessageRes = null,
+            )
+            return
+        }
         val inputPath = current.sourceRelativePath
         val inputContainer = current.inputContainer
         val outputContainer = current.outputContainer
@@ -396,6 +413,17 @@ internal class MediaViewModel(application: Application) : AndroidViewModel(appli
         capabilities: NovaNativeCore.NativeMediaCodecCapabilities?,
     ): MediaUiState {
         if (capabilities == null) return this
+        val registry = capabilityRegistry ?: return copy(
+            outputContainer = null,
+            videoCodec = null,
+            audioCodec = null,
+        )
+        if (!registry.supports("media.nativeMux") ||
+            (includeVideo && !registry.supports("media.videoTranscode")) ||
+            (includeAudio && !registry.supports("media.audioTranscode"))
+        ) {
+            return copy(outputContainer = null, videoCodec = null, audioCodec = null)
+        }
         val output = outputContainer?.takeIf {
             it in chooseOutputContainers(capabilities, includeVideo, includeAudio)
         } ?: chooseOutputContainers(capabilities, includeVideo, includeAudio).firstOrNull()

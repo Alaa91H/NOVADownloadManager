@@ -8,7 +8,7 @@
 uniffi::setup_scaffolding!();
 
 /// Increment when a bridge change is not backward compatible.
-pub const BRIDGE_API_VERSION: u32 = 4;
+pub const BRIDGE_API_VERSION: u32 = 5;
 
 /// Typed capability and compatibility information returned before a mobile
 /// client creates a core session.
@@ -1386,6 +1386,343 @@ pub fn native_media_codec_capabilities() -> MobileMediaCodecCapabilities {
     }
 }
 
+#[cfg(target_os = "android")]
+fn mobile_capability_entry(
+    id: &str,
+    supported: bool,
+    unavailable_reason: &str,
+    evidence: &str,
+    operations: &[&str],
+    events: &[&str],
+    constraints: serde_json::Value,
+) -> nova_core_model::CapabilityEntry {
+    use nova_core_model::{CapabilityEntry, CapabilityStatus};
+
+    CapabilityEntry {
+        id: id.to_owned(),
+        version: 1,
+        status: if supported {
+            CapabilityStatus::Supported
+        } else {
+            CapabilityStatus::Unavailable
+        },
+        platforms: vec!["android".to_owned()],
+        client_adapters: std::collections::BTreeMap::new(),
+        operations: operations
+            .iter()
+            .map(|operation| (*operation).to_owned())
+            .collect(),
+        events: events.iter().map(|event| (*event).to_owned()).collect(),
+        constraints: constraints
+            .as_object()
+            .map(|object| {
+                object
+                    .iter()
+                    .map(|(key, value)| (key.clone(), value.clone()))
+                    .collect()
+            })
+            .unwrap_or_default(),
+        reason: (!supported).then(|| unavailable_reason.to_owned()),
+        evidence: vec![evidence.to_owned()],
+    }
+}
+
+/// Reports the capabilities compiled into the Android native runtime.
+///
+/// This registry deliberately describes the mobile runtime independently of
+/// the desktop daemon and does not imply that the Android UI has parity for
+/// every operation listed here.
+#[cfg(target_os = "android")]
+fn mobile_runtime_capability_registry_json() -> String {
+    use nova_core_model::CapabilityRegistry;
+
+    let codecs = nova_media_processing_core::native_media_codec_capabilities();
+    let audio_transcode = !codecs.audio.decoders.is_empty()
+        && !codecs.audio.input_containers.is_empty()
+        && codecs
+            .audio
+            .encoders_by_container
+            .values()
+            .any(|encoders| !encoders.is_empty());
+    let video_transcode = !codecs.video.decoders.is_empty()
+        && !codecs.video.input_containers.is_empty()
+        && codecs
+            .video
+            .encoders_by_container
+            .values()
+            .any(|encoders| !encoders.is_empty());
+    let native_codecs = !codecs.audio.decoders.is_empty()
+        || !codecs.audio.encoders.is_empty()
+        || !codecs.video.decoders.is_empty()
+        || !codecs.video.encoders.is_empty();
+    let native_mux = !codecs.muxers.is_empty();
+
+    let entries = vec![
+        mobile_capability_entry(
+            "download.direct",
+            true,
+            "The Android direct-download core is unavailable.",
+            "nova-mobile-core::download_to_app_private_path",
+            &["add", "pause", "cancel"],
+            &[],
+            serde_json::json!({
+                "protocols": ["http", "https"],
+                "destination": "app-private",
+                "defaultConnectionsPerTask": nova_mobile_core::DEFAULT_MOBILE_CONNECTIONS
+            }),
+        ),
+        mobile_capability_entry(
+            "download.segmented",
+            true,
+            "Segmented direct transfers are unavailable in this Android build.",
+            "nova-download-core::download_http_to_path_segmented_controlled_with_context",
+            &["add", "pause", "cancel"],
+            &[],
+            serde_json::json!({
+                "defaultConnectionsPerTask": nova_mobile_core::DEFAULT_MOBILE_CONNECTIONS,
+                "adaptiveConnections": false
+            }),
+        ),
+        mobile_capability_entry(
+            "download.resume",
+            true,
+            "HTTP range resume is unavailable in this Android build.",
+            "nova-download-core::resume-decision-and-resource-identity",
+            &["resume"],
+            &[],
+            serde_json::json!({"resourceIdentityRequired": true}),
+        ),
+        mobile_capability_entry(
+            "download.retry",
+            false,
+            "Automatic retry policies are not implemented in the Android runtime.",
+            "nova-mobile-core::control-surface",
+            &["retry"],
+            &[],
+            serde_json::json!({}),
+        ),
+        mobile_capability_entry(
+            "network.proxy",
+            false,
+            "The Android transfer facade does not configure proxy profiles.",
+            "nova-mobile-ffi::network-context",
+            &["configure", "add"],
+            &[],
+            serde_json::json!({}),
+        ),
+        mobile_capability_entry(
+            "network.interfaceBinding",
+            false,
+            "Android interface binding is not exposed by the mobile runtime.",
+            "nova-mobile-ffi::network-context",
+            &["bindInterface", "add"],
+            &[],
+            serde_json::json!({}),
+        ),
+        mobile_capability_entry(
+            "network.dns.custom",
+            false,
+            "Custom DNS resolvers are not exposed by the Android transfer facade.",
+            "nova-mobile-ffi::network-context",
+            &["configure", "resolve"],
+            &[],
+            serde_json::json!({}),
+        ),
+        mobile_capability_entry(
+            "network.dns.doh",
+            false,
+            "DNS-over-HTTPS profiles are not exposed by the Android transfer facade.",
+            "nova-mobile-ffi::network-context",
+            &["configure", "resolve"],
+            &[],
+            serde_json::json!({}),
+        ),
+        mobile_capability_entry(
+            "media.extraction",
+            true,
+            "Native media resolution is unavailable in this Android build.",
+            "nova-media-core::resolve_mobile_media_descriptor",
+            &["probe", "resolve", "add"],
+            &[],
+            serde_json::json!({"runtimeCore": "nova-media-engine"}),
+        ),
+        mobile_capability_entry(
+            "media.hls",
+            native_mux,
+            "HLS task execution requires an available native muxer.",
+            "nova-media-core::parse_hls-and-stage_hls_media_plan",
+            &["resolve", "add", "pause", "resume", "cancel"],
+            &[],
+            serde_json::json!({"requiresNativeMuxer": true}),
+        ),
+        mobile_capability_entry(
+            "media.dash",
+            native_mux,
+            "DASH task execution requires an available native muxer.",
+            "nova-media-core::parse_dash-and-stage_dash_representation_plan",
+            &["resolve", "add", "pause", "resume", "cancel"],
+            &[],
+            serde_json::json!({"requiresNativeMuxer": true}),
+        ),
+        mobile_capability_entry(
+            "media.nativeCodecs",
+            native_codecs,
+            "No native media decoder or encoder is registered in this Android build.",
+            "nova-media-processing-core::native_media_codec_capabilities",
+            &["inspect", "select"],
+            &[],
+            serde_json::json!({"codecRegistry": codecs}),
+        ),
+        mobile_capability_entry(
+            "media.nativeMux",
+            native_mux,
+            "No in-process muxer is registered in this Android build.",
+            "nova-media-processing-core::native_media_codec_capabilities.muxers",
+            &["mux", "remux"],
+            &[],
+            serde_json::json!({"muxers": codecs.muxers}),
+        ),
+        mobile_capability_entry(
+            "media.audioTranscode",
+            audio_transcode,
+            "A native audio decoder and encoder pair is not available in this Android build.",
+            "nova-mobile-core::transcode_media_in_app_private",
+            &["transcode", "extractAudio"],
+            &[],
+            serde_json::json!({
+                "decoders": codecs.audio.decoders,
+                "encoders": codecs.audio.encoders
+            }),
+        ),
+        mobile_capability_entry(
+            "media.videoTranscode",
+            video_transcode,
+            "A native video decoder and encoder pair is not available in this Android build.",
+            "nova-mobile-core::transcode_media_in_app_private",
+            &["transcode"],
+            &[],
+            serde_json::json!({
+                "decoders": codecs.video.decoders,
+                "encoders": codecs.video.encoders
+            }),
+        ),
+        mobile_capability_entry(
+            "media.subtitleEmbedding",
+            false,
+            "The Android native mux path does not embed subtitle tracks.",
+            "nova-mobile-ffi::mux_mobile_media_tracks",
+            &["embed"],
+            &[],
+            serde_json::json!({"availableSubtitleContainers": codecs.subtitle_containers}),
+        ),
+        mobile_capability_entry(
+            "torrent.core",
+            false,
+            "A native torrent engine is not linked into the Android runtime.",
+            "nova-mobile-ffi::linked-engines",
+            &["add", "pause", "resume", "delete"],
+            &[],
+            serde_json::json!({}),
+        ),
+        mobile_capability_entry(
+            "torrent.magnet",
+            false,
+            "Native magnet metadata resolution is not linked into the Android runtime.",
+            "nova-mobile-ffi::linked-engines",
+            &["resolveMagnet", "add"],
+            &[],
+            serde_json::json!({}),
+        ),
+        mobile_capability_entry(
+            "torrent.dht",
+            false,
+            "Native DHT discovery is not linked into the Android runtime.",
+            "nova-mobile-ffi::linked-engines",
+            &["discoverPeers", "announce"],
+            &[],
+            serde_json::json!({}),
+        ),
+        mobile_capability_entry(
+            "network.profile",
+            false,
+            "Unified per-task Android network profiles are not implemented.",
+            "nova-mobile-ffi::network-context",
+            &["select", "assign"],
+            &[],
+            serde_json::json!({}),
+        ),
+        mobile_capability_entry(
+            "queue.management",
+            false,
+            "A Rust-owned Android queue command bus is not implemented.",
+            "nova-mobile-core::control-surface",
+            &["create", "update", "delete", "reorder"],
+            &[],
+            serde_json::json!({}),
+        ),
+        mobile_capability_entry(
+            "profile.management",
+            false,
+            "Rust-owned Android transfer profiles are not implemented.",
+            "nova-mobile-core::control-surface",
+            &["create", "update", "delete", "activate"],
+            &[],
+            serde_json::json!({}),
+        ),
+        mobile_capability_entry(
+            "rules.management",
+            false,
+            "A shared Rust download rules engine is not implemented in the Android runtime.",
+            "nova-mobile-core::control-surface",
+            &["add", "delete"],
+            &[],
+            serde_json::json!({}),
+        ),
+        mobile_capability_entry(
+            "scheduler.management",
+            false,
+            "A shared Rust scheduler is not implemented in the Android runtime.",
+            "nova-mobile-core::control-surface",
+            &["add", "update", "delete"],
+            &[],
+            serde_json::json!({}),
+        ),
+        mobile_capability_entry(
+            "batch.atomic",
+            false,
+            "Atomic command batches are not implemented in the Android runtime.",
+            "nova-mobile-core::control-surface",
+            &["batch"],
+            &[],
+            serde_json::json!({"bestEffortMaximum": nova_core_model::MAX_COMMAND_BATCH_SIZE}),
+        ),
+        mobile_capability_entry(
+            "security.scopedTokens",
+            false,
+            "Scoped runtime tokens and role-based permissions are not implemented.",
+            "nova-mobile-ffi::control-surface",
+            &["issue", "rotate", "revoke"],
+            &[],
+            serde_json::json!({}),
+        ),
+        mobile_capability_entry(
+            "remote.control",
+            false,
+            "The Android runtime does not expose a remote control API.",
+            "nova-mobile-ffi::control-surface",
+            &["connect", "authorize"],
+            &[],
+            serde_json::json!({"localOnly": true}),
+        ),
+    ];
+
+    let registry = CapabilityRegistry::new(
+        nova_core_model::CAPABILITY_REGISTRY_CONTRACT_VERSION,
+        entries,
+    );
+    serde_json::to_string(&registry).expect("runtime capability registry contains JSON values")
+}
+
 #[uniffi::export]
 pub fn transcode_mobile_media(
     request: MobileMediaTranscodeRequest,
@@ -1842,6 +2179,24 @@ pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativeM
             throw_android_transfer_error(
                 &mut env,
                 format!("failed to encode native media codec capabilities: {error}"),
+            );
+            std::ptr::null_mut()
+        }
+    }
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativeRuntimeCapabilityRegistryJson(
+    mut env: jni::JNIEnv<'_>,
+    _receiver: jni::objects::JObject<'_>,
+) -> jni::sys::jstring {
+    match env.new_string(mobile_runtime_capability_registry_json()) {
+        Ok(value) => value.into_raw(),
+        Err(error) => {
+            throw_android_transfer_error(
+                &mut env,
+                format!("failed to encode Android runtime capability registry: {error}"),
             );
             std::ptr::null_mut()
         }

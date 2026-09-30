@@ -39,6 +39,27 @@ for (const [name, fixture] of Object.entries(contract.fixtures ?? {})) {
   }
 }
 
+const idsFrom = (source, patterns) => patterns
+  .flatMap((pattern) => [...source.matchAll(pattern)].map((match) => match[1]))
+  .sort();
+const daemonCapabilityIds = idsFrom(
+  read('src-tauri/src/daemon/capability_registry.rs'),
+  [/\bentry\(\s*"([^"]+)"/g, /\bcommand_group\(\s*command_capabilities,\s*"([^"]+)"/g],
+);
+const mobileCapabilityIds = idsFrom(mobileFfi, [/\bmobile_capability_entry\(\s*"([^"]+)"/g]);
+const duplicates = (values) => values.filter((value, index) => values.indexOf(value) !== index);
+if (duplicates(daemonCapabilityIds).length) {
+  errors.push(`daemon capability IDs must be unique: ${duplicates(daemonCapabilityIds).join(', ')}`);
+}
+if (duplicates(mobileCapabilityIds).length) {
+  errors.push(`Android capability IDs must be unique: ${duplicates(mobileCapabilityIds).join(', ')}`);
+}
+if (JSON.stringify(daemonCapabilityIds) !== JSON.stringify(mobileCapabilityIds)) {
+  const daemonOnly = daemonCapabilityIds.filter((id) => !mobileCapabilityIds.includes(id));
+  const mobileOnly = mobileCapabilityIds.filter((id) => !daemonCapabilityIds.includes(id));
+  errors.push(`Android capability IDs diverge from daemon; daemon-only=[${daemonOnly.join(', ')}], Android-only=[${mobileOnly.join(', ')}]`);
+}
+
 const requiredSourceFragments = [
   [rustModel, 'RUNTIME_CAPABILITIES_CONTRACT_VERSION: u32 = 1', 'Rust contract version'],
   [rustModel, 'CAPABILITY_REGISTRY_CONTRACT_VERSION: u32 = 2', 'Rust capability registry version'],
@@ -53,7 +74,12 @@ const requiredSourceFragments = [
   [extensionSchema, 'contractVersion: z.number().int().min(1)', 'extension contract version schema'],
   [extensionSchema, 'capabilityRegistryVersion: z.number().int().min(1)', 'extension capability registry version schema'],
   [mobileFfi, '"capabilityRegistryVersion": nova_core_model::NATIVE_MEDIA_CODEC_REGISTRY_SCHEMA_VERSION', 'Android codec registry version'],
+  [mobileFfi, 'BRIDGE_API_VERSION: u32 = 5', 'Android JNI bridge version'],
+  [mobileFfi, 'fn mobile_runtime_capability_registry_json()', 'Android runtime capability registry source'],
+  [mobileFfi, 'nativeRuntimeCapabilityRegistryJson', 'Android JNI capability registry export'],
   [androidNativeCore, 'capabilityRegistryVersion = root.optInt("capabilityRegistryVersion", 0)', 'Android capability registry version parsing'],
+  [androidNativeCore, 'CLIENT_BRIDGE_API_VERSION = 5', 'Android client bridge version'],
+  [androidNativeCore, 'fun runtimeCapabilityRegistry(): NativeCapabilityRegistry', 'Android capability registry parser'],
   [desktopMediaPage, 'capabilities.nativeCodecRegistry', 'Qt media capability registry consumption'],
   [extensionSchema, "cancelSemantics: z.literal('remove')", 'extension cancel semantics schema'],
   [extensionSchema, "unknownStatePolicy: z.literal('reject')", 'extension unknown-state policy'],
