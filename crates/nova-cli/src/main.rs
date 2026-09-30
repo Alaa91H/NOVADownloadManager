@@ -398,7 +398,24 @@ fn ensure_command_available(
             }
             return Ok(());
         }
-        ControlCommand::AddDownload { .. } => ("addDownload", Some("download.direct")),
+        ControlCommand::AddDownload { request } => (
+            "addDownload",
+            Some(
+                if request
+                    .get("url")
+                    .and_then(serde_json::Value::as_str)
+                    .is_some_and(|url| {
+                        url.trim()
+                            .get(..7)
+                            .is_some_and(|scheme| scheme.eq_ignore_ascii_case("magnet:"))
+                    })
+                {
+                    "torrent.core"
+                } else {
+                    "download.direct"
+                },
+            ),
+        ),
         ControlCommand::AddMediaDownload { .. } => ("addMediaDownload", Some("media.extraction")),
         ControlCommand::AddMediaPlaylist { .. } => ("addMediaPlaylist", Some("media.extraction")),
         ControlCommand::AddTorrent { .. } => ("addTorrent", Some("torrent.core")),

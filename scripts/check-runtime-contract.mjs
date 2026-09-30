@@ -17,6 +17,7 @@ const desktopApiHeader = read('desktop-native/src/api/NovaApiClient.h');
 const desktopApiSource = read('desktop-native/src/api/NovaApiClient.cpp');
 const cliSource = read('crates/nova-cli/src/main.rs');
 const telegramSource = read('src-tauri/src/daemon/telegram.rs');
+const controlPlaneCommands = read('src-tauri/src/daemon/routes/commands.rs');
 
 const errors = [];
 const expectedStates = contract.taskLifecycle.states;
@@ -110,6 +111,14 @@ const requiredSourceFragments = [
   [cliSource, '"/capabilityRegistry/entries"', 'CLI unified capability registry path'],
   [telegramSource, '"/capabilityRegistry/schemaVersion"', 'Telegram capability registry version reporting'],
   [telegramSource, 'Runtime capability registry v{registry_version}', 'Telegram capability registry summary'],
+  [telegramSource, 'Query::GetTask', 'Telegram task inspection query'],
+  [telegramSource, 'Query::Events', 'Telegram event query adapter'],
+  [telegramSource, 'task_inspection_reply', 'Telegram safe task summary'],
+  [controlPlaneCommands, 'fn require_runtime_capability', 'Core runtime capability gate'],
+  [controlPlaneCommands, '"download.direct"', 'Core direct download capability gate'],
+  [controlPlaneCommands, 'require_runtime_capability(state, "media.extraction")', 'Core media capability gate'],
+  [controlPlaneCommands, '"torrent.core"', 'Core torrent capability gate'],
+  [controlPlaneCommands, '"runtime_capability_unavailable"', 'Structured runtime capability rejection'],
   [desktopMediaPage, 'capabilitySupported("media.extraction")', 'Qt media extraction capability gate'],
   [desktopMediaPage, 'capabilitySupported("media.audioTranscode")', 'Qt audio transcode capability gate'],
   [desktopMediaPage, 'capabilitySupported("media.videoTranscode")', 'Qt video transcode capability gate'],

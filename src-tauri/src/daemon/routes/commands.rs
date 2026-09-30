@@ -563,6 +563,19 @@ async fn execute_single(
     match command {
         ControlCommand::AddDownload { request } => {
             let body = decode_request::<CreateDownloadBody>(request)?;
+            let is_magnet = body.url.as_deref().is_some_and(|url| {
+                url.trim()
+                    .get(..7)
+                    .is_some_and(|scheme| scheme.eq_ignore_ascii_case("magnet:"))
+            });
+            require_runtime_capability(
+                state,
+                if is_magnet {
+                    "torrent.core"
+                } else {
+                    "download.direct"
+                },
+            )?;
             match downloads::create_download_service(state.clone(), body).await {
                 Ok(task) => to_value(task),
                 Err((status, Json(body))) => Err(route_error(state, status, body)),
@@ -570,6 +583,7 @@ async fn execute_single(
         }
         ControlCommand::AddMediaDownload { request } => {
             let mut body = decode_request::<CreateDownloadBody>(request)?;
+            require_runtime_capability(state, "media.extraction")?;
             if body.media_options.is_none() {
                 body.media_options = Some(crate::daemon::types::MediaDownloadOptions::default());
             }
@@ -580,6 +594,7 @@ async fn execute_single(
         }
         ControlCommand::AddMediaPlaylist { request } => {
             let body = decode_request::<downloads::CreateNativeMediaPlaylistBody>(request)?;
+            require_runtime_capability(state, "media.extraction")?;
             match downloads::create_native_media_playlist_service(state.clone(), body).await {
                 Ok(Json(result)) => Ok(result),
                 Err((status, Json(body))) => Err(route_error(state, status, body)),
@@ -587,6 +602,7 @@ async fn execute_single(
         }
         ControlCommand::AddTorrent { request } => {
             let body = decode_request::<crate::daemon::torrent_task::CreateTorrentBody>(request)?;
+            require_runtime_capability(state, "torrent.core")?;
             crate::daemon::torrent_task::create_torrent_task(state, body)
                 .await
                 .map_err(domain_error)
@@ -780,6 +796,34 @@ async fn execute_single(
             400,
             false,
         )),
+    }
+}
+
+fn require_runtime_capability(
+    state: &SharedState,
+    capability_id: &str,
+) -> Result<(), StructuredError> {
+    let capabilities = state.engine_capabilities();
+    let status = capabilities
+        .pointer("/capabilityRegistry/entries")
+        .and_then(Value::as_array)
+        .and_then(|entries| {
+            entries.iter().find(|entry| {
+                entry.get("id").and_then(Value::as_str) == Some(capability_id)
+            })
+        })
+        .and_then(|entry| entry.get("status"))
+        .and_then(Value::as_str)
+        .unwrap_or("unavailable");
+    if status == "supported" {
+        Ok(())
+    } else {
+        Err(StructuredError::new(
+            "runtime_capability_unavailable",
+            format!("Runtime capability `{capability_id}` is {status}."),
+            503,
+            false,
+        ))
     }
 }
 

@@ -328,6 +328,110 @@ fn list_reply(value: &serde_json::Value, key: &str, title: &str) -> String {
     reply
 }
 
+fn format_bytes(bytes: u64) -> String {
+    const UNITS: [&str; 5] = ["B", "KiB", "MiB", "GiB", "TiB"];
+    if bytes < 1024 {
+        return format!("{bytes} B");
+    }
+    let mut value = bytes as f64;
+    let mut unit = 0usize;
+    while value >= 1024.0 && unit + 1 < UNITS.len() {
+        value /= 1024.0;
+        unit += 1;
+    }
+    format!("{value:.1} {}", UNITS[unit])
+}
+
+fn task_inspection_reply(task: &serde_json::Value) -> String {
+    let id = task
+        .get("id")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("unknown");
+    let name = task
+        .get("name")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("Unnamed task");
+    let status = task
+        .get("status")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("unknown");
+    let downloaded = task
+        .get("downloadedBytes")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let total = task
+        .get("sizeBytes")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let progress = if total == 0 {
+        "unknown".to_owned()
+    } else {
+        format!("{:.1}%", downloaded as f64 * 100.0 / total as f64)
+    };
+    let speed = task
+        .get("speedBytesPerSec")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let time_left = task
+        .get("timeLeftSeconds")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let engine = task
+        .get("engine")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("unknown");
+    format!(
+        "<b>{}</b>\nID: <code>{}</code>\nState: <code>{}</code>\nProgress: {} / {} ({progress})\nSpeed: {}/s · remaining: {time_left}s\nEngine: <code>{}</code>",
+        escape_html(name),
+        escape_html(id),
+        escape_html(status),
+        format_bytes(downloaded),
+        if total == 0 {
+            "unknown size".to_owned()
+        } else {
+            format_bytes(total)
+        },
+        format_bytes(speed),
+        escape_html(engine)
+    )
+}
+
+fn events_reply(value: &serde_json::Value) -> String {
+    let Some(items) = value.get("items").and_then(serde_json::Value::as_array) else {
+        return "Events: no data returned.".to_owned();
+    };
+    if items.is_empty() {
+        return "No events after this cursor.".to_owned();
+    }
+    let mut reply = format!("Events after cursor ({})\n", items.len());
+    for event in items.iter().take(20) {
+        let event_id = event
+            .get("eventId")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0);
+        let event_type = event
+            .get("eventType")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("unknown");
+        let task_id = event
+            .get("taskId")
+            .and_then(serde_json::Value::as_str)
+            .map(|id| format!(" · <code>{}</code>", escape_html(id)))
+            .unwrap_or_default();
+        reply.push_str(&format!(
+            "• #{event_id} <code>{}</code>{task_id}\n",
+            escape_html(event_type)
+        ));
+    }
+    if let Some(cursor) = value.get("nextCursor").and_then(serde_json::Value::as_str) {
+        reply.push_str(&format!(
+            "Next: /events <code>{}</code>",
+            escape_html(cursor)
+        ));
+    }
+    reply
+}
+
 fn handle_extended_control_command(
     state: &SharedState,
     rt: &tokio::runtime::Handle,
@@ -337,6 +441,34 @@ fn handle_extended_control_command(
     use nova_core_model::{ControlCommand as Command, ControlQuery as Query};
 
     let response: Option<Result<String, String>> = match cmd {
+        "/inspect" => Some(
+            required_argument(arg, "/inspect <task-id>").and_then(|id| {
+                run_control_query(
+                    state,
+                    rt,
+                    Query::GetTask {
+                        task_id: id.to_owned(),
+                    },
+                )
+                .map(|task| task_inspection_reply(&task))
+            }),
+        ),
+        "/events" => Some((|| {
+            let cursor = if arg.trim().is_empty() {
+                None
+            } else {
+                Some(arg.trim().to_owned())
+            };
+            run_control_query(
+                state,
+                rt,
+                Query::Events {
+                    cursor,
+                    limit: Some(20),
+                },
+            )
+            .map(|value| events_reply(&value))
+        })()),
         "/queues" | "/queue-list" => Some(
             run_control_query(state, rt, Query::ListQueues)
                 .map(|value| list_reply(&value, "queues", "Queues")),
@@ -681,6 +813,8 @@ fn handle_telegram_command(
             "/start" | "/help" => {
                 let help = "NOVA Bot Commands:\n".to_owned()
                     + "/list - List all downloads\n"
+                    + "/inspect <id> - Show task state and progress\n"
+                    + "/events [cursor] - Page through sanitized runtime events\n"
                     + "/add <url> - Add download\n"
                     + "/media <url> - Add a native media download\n"
                     + "/pause <id> - Pause download\n"
