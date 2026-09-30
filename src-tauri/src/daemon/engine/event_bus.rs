@@ -100,6 +100,15 @@ pub enum EngineEvent {
         task_id: String,
         profile: String,
     },
+    CredentialStored {
+        actor_id: String,
+        credential_id: String,
+    },
+    CredentialDeleted {
+        actor_id: String,
+        credential_id: String,
+        removed: bool,
+    },
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -130,7 +139,7 @@ pub struct PersistedEngineEvent {
 }
 
 impl EngineEvent {
-    fn task_id(&self) -> Option<&str> {
+    pub(crate) fn task_id(&self) -> Option<&str> {
         match self {
             Self::DownloadStarted { task_id, .. }
             | Self::DownloadProgress { task_id, .. }
@@ -150,6 +159,7 @@ impl EngineEvent {
             | Self::SchedulerTriggered { task_id, .. }
             | Self::RuleApplied { task_id, .. }
             | Self::ProfileSwitched { task_id, .. } => Some(task_id),
+            Self::CredentialStored { .. } | Self::CredentialDeleted { .. } => None,
         }
     }
 }

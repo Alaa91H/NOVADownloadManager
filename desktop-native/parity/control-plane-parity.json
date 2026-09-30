@@ -107,7 +107,7 @@
       "download.segment_stolen", "download.connections_adjusted", "download.retry_scheduled",
       "download.checksum_verified", "download.mirror_found", "download.speed_changed",
       "queue.changed", "download.bandwidth_allocated", "scheduler.triggered", "rule.applied",
-      "profile.switched"
+      "profile.switched", "credential.stored", "credential.deleted"
     ],
     "telegram": ["download.completed", "download.failed"],
     "browserExtension": []
@@ -131,7 +131,9 @@
     "download.bandwidth_allocated": "inProgress",
     "scheduler.triggered": "inProgress",
     "rule.applied": "inProgress",
-    "profile.switched": "inProgress"
+    "profile.switched": "inProgress",
+    "credential.stored": "inProgress",
+    "credential.deleted": "inProgress"
   },
   "evidence": {
     "desktop": ["desktop-native/src/api/NovaApiClient.cpp"],

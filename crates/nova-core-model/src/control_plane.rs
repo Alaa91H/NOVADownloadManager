@@ -30,6 +30,8 @@ pub const CONTROL_EVENT_TYPES: &[&str] = &[
     "scheduler.triggered",
     "rule.applied",
     "profile.switched",
+    "credential.stored",
+    "credential.deleted",
 ];
 
 /// Maximum number of operations accepted in one best-effort batch.

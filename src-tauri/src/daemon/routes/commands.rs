@@ -44,10 +44,11 @@ pub(crate) fn execute_legacy<'a>(
         };
         let command_state = state.clone();
         let principal = Principal::local_admin();
+        let actor_id = principal.subject.clone();
         state
             .command_bus
             .execute(&principal, envelope, move |command| async move {
-                let result = execute_command(command_state.clone(), command).await;
+                let result = execute_command(command_state.clone(), command, actor_id).await;
                 if result.is_ok() {
                     command_state.mark_dirty();
                 }
@@ -203,10 +204,11 @@ async fn handle_command(
 ) -> Result<Json<CommandReceipt>, (StatusCode, Json<Value>)> {
     let request_id = envelope.request_id.clone();
     let command_state = state.clone();
+    let actor_id = principal.subject.clone();
     let result = state
         .command_bus
         .execute(&principal, envelope, move |command| async move {
-            let result = execute_command(command_state.clone(), command).await;
+            let result = execute_command(command_state.clone(), command, actor_id).await;
             if result.is_ok() {
                 command_state.mark_dirty();
             }
@@ -510,6 +512,7 @@ async fn execute_query(state: &SharedState, query: ControlQuery) -> Result<Value
 async fn execute_command(
     state: SharedState,
     command: ControlCommand,
+    actor_id: String,
 ) -> Result<Value, StructuredError> {
     match command {
         ControlCommand::Batch { mode, commands } => {
@@ -525,7 +528,7 @@ async fn execute_command(
             let mut failed = 0usize;
             let mut items = Vec::with_capacity(commands.len());
             for (index, command) in commands.into_iter().enumerate() {
-                match execute_single(&state, command).await {
+                match execute_single(&state, command, &actor_id).await {
                     Ok(result) => {
                         succeeded += 1;
                         items.push(serde_json::json!({
@@ -552,13 +555,14 @@ async fn execute_command(
                 "items": items,
             }))
         }
-        single => execute_single(&state, single).await,
+        single => execute_single(&state, single, &actor_id).await,
     }
 }
 
 async fn execute_single(
     state: &SharedState,
     command: ControlCommand,
+    actor_id: &str,
 ) -> Result<Value, StructuredError> {
     match command {
         ControlCommand::AddDownload { request } => {
@@ -630,6 +634,12 @@ async fn execute_single(
                 )
             })?
             .map_err(credential_store_error)?;
+            state.event_bus.publish(
+                crate::daemon::engine::event_bus::EngineEvent::CredentialStored {
+                    actor_id: actor_id.to_owned(),
+                    credential_id: response_id.clone(),
+                },
+            );
             Ok(serde_json::json!({"ok": true, "credentialId": response_id}))
         }
         ControlCommand::DeleteCredential { credential_id } => {
@@ -644,6 +654,13 @@ async fn execute_single(
                     )
                 })?
                 .map_err(credential_store_error)?;
+            state.event_bus.publish(
+                crate::daemon::engine::event_bus::EngineEvent::CredentialDeleted {
+                    actor_id: actor_id.to_owned(),
+                    credential_id: response_id.clone(),
+                    removed,
+                },
+            );
             Ok(serde_json::json!({"ok": true, "credentialId": response_id, "removed": removed}))
         }
         ControlCommand::UpdateTask { task_id, request } => {
@@ -871,36 +888,36 @@ fn control_event(
 ) -> Result<ControlEvent, StructuredError> {
     use crate::daemon::engine::event_bus::EngineEvent as E;
 
-    let (event_type, task_id) = match &event.event {
-        E::DownloadStarted { task_id, .. } => ("download.started", task_id),
-        E::DownloadProgress { task_id, .. } => ("download.progress", task_id),
-        E::DownloadComplete { task_id, .. } => ("download.completed", task_id),
+    let event_type = match &event.event {
+        E::DownloadStarted { .. } => "download.started",
+        E::DownloadProgress { .. } => "download.progress",
+        E::DownloadComplete { .. } => "download.completed",
         E::DownloadFailed {
-            task_id,
             will_retry,
             ..
-        } => (
+        } => {
             if *will_retry {
                 "download.retrying"
             } else {
                 "download.failed"
-            },
-            task_id,
-        ),
-        E::DownloadPaused { task_id, .. } => ("download.paused", task_id),
-        E::DownloadResumed { task_id, .. } => ("download.resumed", task_id),
-        E::DownloadCancelled { task_id } => ("download.cancelled", task_id),
-        E::SegmentStolen { task_id, .. } => ("download.segment_stolen", task_id),
-        E::ConnectionsAdjusted { task_id, .. } => ("download.connections_adjusted", task_id),
-        E::RetryScheduled { task_id, .. } => ("download.retry_scheduled", task_id),
-        E::ChecksumVerified { task_id, .. } => ("download.checksum_verified", task_id),
-        E::MirrorFound { task_id, .. } => ("download.mirror_found", task_id),
-        E::SpeedChanged { task_id, .. } => ("download.speed_changed", task_id),
-        E::QueueChanged { task_id, .. } => ("queue.changed", task_id),
-        E::BandwidthAllocated { task_id, .. } => ("download.bandwidth_allocated", task_id),
-        E::SchedulerTriggered { task_id, .. } => ("scheduler.triggered", task_id),
-        E::RuleApplied { task_id, .. } => ("rule.applied", task_id),
-        E::ProfileSwitched { task_id, .. } => ("profile.switched", task_id),
+            }
+        }
+        E::DownloadPaused { .. } => "download.paused",
+        E::DownloadResumed { .. } => "download.resumed",
+        E::DownloadCancelled { .. } => "download.cancelled",
+        E::SegmentStolen { .. } => "download.segment_stolen",
+        E::ConnectionsAdjusted { .. } => "download.connections_adjusted",
+        E::RetryScheduled { .. } => "download.retry_scheduled",
+        E::ChecksumVerified { .. } => "download.checksum_verified",
+        E::MirrorFound { .. } => "download.mirror_found",
+        E::SpeedChanged { .. } => "download.speed_changed",
+        E::QueueChanged { .. } => "queue.changed",
+        E::BandwidthAllocated { .. } => "download.bandwidth_allocated",
+        E::SchedulerTriggered { .. } => "scheduler.triggered",
+        E::RuleApplied { .. } => "rule.applied",
+        E::ProfileSwitched { .. } => "profile.switched",
+        E::CredentialStored { .. } => "credential.stored",
+        E::CredentialDeleted { .. } => "credential.deleted",
     };
     let serialized = serde_json::to_value(&event.event).map_err(|error| {
         StructuredError::new(
@@ -917,7 +934,7 @@ fn control_event(
         schema_version: CONTROL_EVENT_SCHEMA_VERSION,
         event_id: event.id,
         event_type: event_type.to_owned(),
-        task_id: Some(task_id.clone()),
+        task_id: event.event.task_id().map(str::to_owned),
         timestamp_millis: event.timestamp_millis,
         data,
     })
