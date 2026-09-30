@@ -462,6 +462,13 @@ pub fn build_runtime_capability_registry(
         ),
         command_group(
             command_capabilities,
+            "security.credentials",
+            &["storeCredential", "deleteCredential"],
+            &["store", "delete"],
+            &[],
+        ),
+        command_group(
+            command_capabilities,
             "scheduler.management",
             &[
                 "addSchedule",

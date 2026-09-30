@@ -613,6 +613,39 @@ async fn execute_single(
                 Err((status, Json(body))) => Err(route_error(state, status, body)),
             }
         }
+        ControlCommand::StoreCredential {
+            credential_id,
+            secret,
+        } => {
+            require_runtime_capability(state, "security.credentials")?;
+            let response_id = credential_id.clone();
+            let store = state.credential_store;
+            tokio::task::spawn_blocking(move || {
+                store.store(&credential_id, secret.expose_secret())
+            })
+            .await
+            .map_err(|_| {
+                credential_store_error(
+                    crate::daemon::credential_store::CredentialStoreError::BackendUnavailable,
+                )
+            })?
+            .map_err(credential_store_error)?;
+            Ok(serde_json::json!({"ok": true, "credentialId": response_id}))
+        }
+        ControlCommand::DeleteCredential { credential_id } => {
+            require_runtime_capability(state, "security.credentials")?;
+            let response_id = credential_id.clone();
+            let store = state.credential_store;
+            let removed = tokio::task::spawn_blocking(move || store.delete(&credential_id))
+                .await
+                .map_err(|_| {
+                    credential_store_error(
+                        crate::daemon::credential_store::CredentialStoreError::BackendUnavailable,
+                    )
+                })?
+                .map_err(credential_store_error)?;
+            Ok(serde_json::json!({"ok": true, "credentialId": response_id, "removed": removed}))
+        }
         ControlCommand::UpdateTask { task_id, request } => {
             let body = decode_request::<downloads::UpdateDownloadBody>(request)?;
             downloads::update_task_service(state, &task_id, body)
@@ -1096,6 +1129,39 @@ fn domain_error(message: String) -> StructuredError {
         _ => "command_rejected",
     };
     StructuredError::new(code, message, status, false)
+}
+
+fn credential_store_error(
+    error: crate::daemon::credential_store::CredentialStoreError,
+) -> StructuredError {
+    use crate::daemon::credential_store::CredentialStoreError as E;
+
+    match error {
+        E::InvalidIdentifier => StructuredError::new(
+            "invalid_credential_id",
+            "credentialId must be 1 to 128 ASCII letters, digits, dots, underscores, or hyphens.",
+            400,
+            false,
+        ),
+        E::InvalidSecret => StructuredError::new(
+            "invalid_credential_secret",
+            "Credential secret must contain 1 to 16384 bytes and no NUL character.",
+            400,
+            false,
+        ),
+        E::NotFound => StructuredError::new(
+            "credential_not_found",
+            "The requested credential was not found.",
+            404,
+            false,
+        ),
+        E::BackendUnavailable => StructuredError::new(
+            "credential_store_unavailable",
+            "The operating-system credential store is unavailable or locked.",
+            503,
+            true,
+        ),
+    }
 }
 
 fn activate_runtime_profile(state: &SharedState) {

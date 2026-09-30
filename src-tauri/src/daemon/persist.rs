@@ -610,6 +610,7 @@ pub(crate) mod tests {
             task_generation: AtomicU64::new(0),
             task_list_cache: RwLock::new(None),
             command_bus: crate::daemon::command_bus::CommandBus::default(),
+            credential_store: crate::daemon::credential_store::CredentialStore::default(),
             event_bus: crate::daemon::engine::event_bus::EventBus::new_with_capacity(100),
             priority_queue: crate::daemon::engine::priority_queue::PriorityBandwidthQueue::new(0),
             bandwidth_manager: crate::daemon::engine::bandwidth::BandwidthManager::default(),

@@ -38,6 +38,8 @@ curl-sys = { version = "0.4", default-features = false, features = ["ssl", "http
 regex = "1"
 rusqlite = { version = "0.31.0", features = ["bundled"] }
 sha2 = "0.10"
+hmac = "0.12"
+zeroize = "1.9"
 sha1 = "0.10"
 md-5 = "0.10"
 # Persists sensitive settings in the platform credential store instead of JSON.

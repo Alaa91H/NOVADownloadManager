@@ -2537,6 +2537,7 @@ dependencies = [
  "flate2",
  "flexi_logger",
  "futures-core",
+ "hmac 0.12.1",
  "keyring",
  "log",
  "md-5",
@@ -2572,6 +2573,7 @@ version = "2.4.25-alpha"
 dependencies = [
  "serde",
  "serde_json",
+ "zeroize",
 ]
 
 [[package]]

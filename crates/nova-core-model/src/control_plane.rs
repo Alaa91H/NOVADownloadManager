@@ -94,6 +94,22 @@ pub const CONTROL_PLANE_CAPABILITIES: &[ControlPlaneCapability] = &[
         note: None,
     },
     ControlPlaneCapability {
+        id: "storeCredential",
+        status: CapabilityStatus::Supported,
+        scopes: &[CommandScope::CredentialManage],
+        conditional_scopes: &[],
+        scope_condition: None,
+        note: Some("Stores the secret in the operating-system credential store; the backend must be available."),
+    },
+    ControlPlaneCapability {
+        id: "deleteCredential",
+        status: CapabilityStatus::Supported,
+        scopes: &[CommandScope::CredentialManage],
+        conditional_scopes: &[],
+        scope_condition: None,
+        note: Some("Deletes a secret from the operating-system credential store."),
+    },
+    ControlPlaneCapability {
         id: "pauseTask",
         status: CapabilityStatus::Supported,
         scopes: &[CommandScope::TaskControl],
@@ -320,6 +336,36 @@ pub enum CommandScope {
     TorrentManage,
     MediaManage,
     Admin,
+    CredentialManage,
+}
+
+/// Secret material accepted by the credential command contract.
+///
+/// Debug output is always redacted and the owned bytes are cleared on drop.
+#[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(transparent)]
+pub struct CredentialSecret(String);
+
+impl CredentialSecret {
+    pub fn new(secret: String) -> Self {
+        Self(secret)
+    }
+
+    pub fn expose_secret(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for CredentialSecret {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("CredentialSecret([REDACTED])")
+    }
+}
+
+impl Drop for CredentialSecret {
+    fn drop(&mut self) {
+        zeroize::Zeroize::zeroize(&mut self.0);
+    }
 }
 
 /// Identity and scopes attached by a trusted adapter after authentication.
@@ -362,6 +408,15 @@ pub enum ControlCommand {
     },
     AddTorrent {
         request: serde_json::Value,
+    },
+    StoreCredential {
+        #[serde(rename = "credentialId")]
+        credential_id: String,
+        secret: CredentialSecret,
+    },
+    DeleteCredential {
+        #[serde(rename = "credentialId")]
+        credential_id: String,
     },
     PauseTask {
         #[serde(rename = "taskId")]
@@ -540,6 +595,9 @@ impl ControlCommand {
             Self::AddTorrent { .. } => {
                 scopes.push(CommandScope::TaskAdd);
                 scopes.push(CommandScope::TorrentManage);
+            }
+            Self::StoreCredential { .. } | Self::DeleteCredential { .. } => {
+                scopes.push(CommandScope::CredentialManage);
             }
             Self::PauseTask { .. }
             | Self::ResumeTask { .. }
@@ -774,6 +832,26 @@ impl ControlCommand {
             Self::DeleteSchedule { schedule_id } => {
                 validate_identifier(schedule_id, "scheduleId", 128)?;
             }
+            Self::StoreCredential {
+                credential_id,
+                secret,
+            } => {
+                validate_credential_id(credential_id)?;
+                if secret.expose_secret().is_empty()
+                    || secret.expose_secret().len() > 16_384
+                    || secret.expose_secret().contains('\0')
+                {
+                    return Err(StructuredError::new(
+                        "invalid_credential_secret",
+                        "Credential secret must contain 1 to 16384 bytes and no NUL character.",
+                        400,
+                        false,
+                    ));
+                }
+            }
+            Self::DeleteCredential { credential_id } => {
+                validate_credential_id(credential_id)?;
+            }
             Self::SetSchedulerPowerCommands { .. } => {}
             Self::Batch { commands, .. } => {
                 if depth > 0 {
@@ -1007,6 +1085,23 @@ fn validate_identifier(value: &str, field: &str, max_bytes: usize) -> Result<(),
         return Err(StructuredError::new(
             "invalid_identifier",
             format!("{field} must be non-empty, at most {max_bytes} bytes, and contain no control characters."),
+            400,
+            false,
+        ));
+    }
+    Ok(())
+}
+
+fn validate_credential_id(value: &str) -> Result<(), StructuredError> {
+    let valid = !value.is_empty()
+        && value.len() <= 128
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'));
+    if !valid {
+        return Err(StructuredError::new(
+            "invalid_credential_id",
+            "credentialId must be 1 to 128 ASCII letters, digits, dots, underscores, or hyphens.",
             400,
             false,
         ));

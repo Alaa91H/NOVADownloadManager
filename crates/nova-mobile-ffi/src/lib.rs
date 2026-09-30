@@ -1724,6 +1724,15 @@ fn mobile_runtime_capability_registry_json() -> String {
             serde_json::json!({"bestEffortMaximum": nova_core_model::MAX_COMMAND_BATCH_SIZE}),
         ),
         mobile_capability_entry(
+            "security.credentials",
+            false,
+            "Android Keystore storage is not connected to the shared credential command contract.",
+            "nova-mobile-ffi::control-surface",
+            &["store", "delete"],
+            &[],
+            serde_json::json!({"secureStorage": "android-keystore"}),
+        ),
+        mobile_capability_entry(
             "security.scopedTokens",
             false,
             "Scoped runtime tokens and role-based permissions are not implemented.",

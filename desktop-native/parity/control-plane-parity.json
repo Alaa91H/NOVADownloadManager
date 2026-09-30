@@ -26,6 +26,7 @@
       "updateQueue", "deleteQueue", "reorderQueues", "reorderQueueTasks", "stopQueue",
       "setActiveProfile", "upsertProfile", "deleteProfile", "addRule", "deleteRule",
       "addSchedule", "updateSchedule", "deleteSchedule", "setSchedulerPowerCommands",
+      "storeCredential", "deleteCredential",
       "batch.bestEffort"
     ],
     "telegram": [
@@ -54,6 +55,8 @@
     "addMediaDownload": "inProgress",
     "addMediaPlaylist": "inProgress",
     "addTorrent": "inProgress",
+    "storeCredential": "inProgress",
+    "deleteCredential": "inProgress",
     "pauseTask": "inProgress",
     "resumeTask": "inProgress",
     "retryTask": "inProgress",

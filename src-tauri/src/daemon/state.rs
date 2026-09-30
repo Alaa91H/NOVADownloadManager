@@ -6,6 +6,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use crate::daemon::command_bus::CommandBus;
+use crate::daemon::credential_store::CredentialStore;
 use crate::daemon::external_tools::types::ToolId;
 use crate::daemon::external_tools::ExternalToolManager;
 use crate::daemon::persist::DownloadStats;
@@ -111,6 +112,8 @@ pub struct AppState {
     pub task_list_cache: RwLock<Option<(u64, Arc<Vec<Task>>)>>,
     /// Shared command validation, permission and idempotency boundary for API adapters.
     pub command_bus: CommandBus,
+    /// Native OS credential store; values are never part of daemon persistence.
+    pub credential_store: CredentialStore,
     pub event_bus: EventBus,
     pub priority_queue: PriorityBandwidthQueue,
     pub bandwidth_manager: BandwidthManager,

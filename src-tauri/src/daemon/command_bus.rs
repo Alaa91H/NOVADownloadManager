@@ -1,15 +1,18 @@
 //! Shared validation, authorization and idempotency boundary for mutations.
 
+use hmac::{Hmac, Mac};
 use nova_core_model::{CommandEnvelope, ControlCommand, Principal, StructuredError};
-use sha2::{Digest, Sha256};
+use sha2::Sha256;
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
+use zeroize::Zeroize;
 
 const IDEMPOTENCY_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 const MAX_IDEMPOTENCY_RECORDS: usize = 4096;
+type HmacSha256 = Hmac<Sha256>;
 
 #[derive(Clone, Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -28,7 +31,6 @@ struct CachedResult {
     outcome: Result<serde_json::Value, StructuredError>,
 }
 
-#[derive(Default)]
 struct IdempotencyStore {
     records: HashMap<String, CachedResult>,
     in_flight: HashMap<String, Weak<Mutex<()>>>,
@@ -38,13 +40,27 @@ struct IdempotencyStore {
 /// adapters share this one validation, permission and replay gate.
 pub struct CommandBus {
     store: Mutex<IdempotencyStore>,
+    fingerprint_key: [u8; 32],
 }
 
 impl Default for CommandBus {
     fn default() -> Self {
+        let mut fingerprint_key = [0; 32];
+        fingerprint_key[..16].copy_from_slice(uuid::Uuid::new_v4().as_bytes());
+        fingerprint_key[16..].copy_from_slice(uuid::Uuid::new_v4().as_bytes());
         Self {
-            store: Mutex::new(IdempotencyStore::default()),
+            store: Mutex::new(IdempotencyStore {
+                records: HashMap::new(),
+                in_flight: HashMap::new(),
+            }),
+            fingerprint_key,
         }
+    }
+}
+
+impl Drop for CommandBus {
+    fn drop(&mut self) {
+        self.fingerprint_key.zeroize();
     }
 }
 
@@ -82,7 +98,7 @@ impl CommandBus {
             ));
         }
 
-        let encoded = serde_json::to_vec(&envelope.command).map_err(|error| {
+        let mut encoded = serde_json::to_vec(&envelope.command).map_err(|error| {
             StructuredError::new(
                 "command_encoding_failed",
                 format!("Command could not be fingerprinted: {error}"),
@@ -90,7 +106,11 @@ impl CommandBus {
                 false,
             )
         })?;
-        let fingerprint: [u8; 32] = Sha256::digest(encoded).into();
+        let mut fingerprint_hasher = HmacSha256::new_from_slice(&self.fingerprint_key)
+            .expect("HMAC accepts keys of any length");
+        fingerprint_hasher.update(&encoded);
+        encoded.zeroize();
+        let fingerprint: [u8; 32] = fingerprint_hasher.finalize().into_bytes().into();
         let storage_key = format!("{}:{}", principal.subject, envelope.idempotency_key);
 
         // Requests with the same principal and idempotency key serialize while
@@ -134,7 +154,10 @@ impl CommandBus {
             };
         }
 
-        let outcome = executor(envelope.command.clone()).await;
+        let request_id = envelope.request_id.clone();
+        let idempotency_key = envelope.idempotency_key.clone();
+        let command = envelope.command;
+        let outcome = executor(command).await;
         // A retryable infrastructure failure has not committed the command's
         // intended effect. Keep the idempotency key free so the client can
         // safely retry it after the transient condition clears. Permanent
@@ -163,7 +186,13 @@ impl CommandBus {
             );
         }
 
-        outcome.map(|result| receipt(&envelope, result, false))
+        outcome.map(|result| CommandReceipt {
+            contract_version: nova_core_model::CONTROL_PLANE_CONTRACT_VERSION,
+            request_id,
+            idempotency_key,
+            replayed: false,
+            result,
+        })
     }
 
     fn prune(store: &mut IdempotencyStore) {

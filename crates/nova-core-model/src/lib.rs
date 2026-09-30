@@ -12,10 +12,10 @@ pub mod control_plane;
 pub use capability_registry::{CapabilityEntry, CapabilityRegistry};
 pub use control_plane::{
     BatchMode, CapabilityStatus, CommandEnvelope, CommandScope, ControlCommand, ControlEvent,
-    ControlPlaneCapability, ControlQuery, Principal, QueryEnvelope, QueryPage, StructuredError,
-    TaskQueryFilter, CONTROL_EVENT_SCHEMA_VERSION, CONTROL_EVENT_TYPES, CONTROL_PLANE_CAPABILITIES,
-    CONTROL_PLANE_CAPABILITY_REGISTRY_VERSION, CONTROL_PLANE_CONTRACT_VERSION,
-    MAX_COMMAND_BATCH_SIZE,
+    ControlPlaneCapability, ControlQuery, CredentialSecret, Principal, QueryEnvelope, QueryPage,
+    StructuredError, TaskQueryFilter, CONTROL_EVENT_SCHEMA_VERSION, CONTROL_EVENT_TYPES,
+    CONTROL_PLANE_CAPABILITIES, CONTROL_PLANE_CAPABILITY_REGISTRY_VERSION,
+    CONTROL_PLANE_CONTRACT_VERSION, MAX_COMMAND_BATCH_SIZE,
 };
 
 /// Version of the runtime capability/lifecycle contract shared by desktop,

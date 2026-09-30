@@ -1,9 +1,11 @@
 use nova_core_model::{
-    BatchMode, CommandEnvelope, ControlCommand, ControlQuery, QueryEnvelope, TaskQueryFilter,
-    CAPABILITY_REGISTRY_CONTRACT_VERSION, CONTROL_PLANE_CONTRACT_VERSION,
+    BatchMode, CommandEnvelope, ControlCommand, ControlQuery, CredentialSecret, QueryEnvelope,
+    TaskQueryFilter, CAPABILITY_REGISTRY_CONTRACT_VERSION, CONTROL_PLANE_CONTRACT_VERSION,
 };
 use std::env;
+use std::io::{self, IsTerminal, Read};
 use std::time::{SystemTime, UNIX_EPOCH};
+use zeroize::Zeroize;
 
 enum Request {
     Command(ControlCommand),
@@ -201,6 +203,7 @@ fn build_request(args: &[String]) -> Result<Request, String> {
         "schedule" => schedule_request(rest)?,
         "media" => media_request(rest)?,
         "torrent" => torrent_request(rest)?,
+        "credential" => credential_request(rest)?,
         "network" => Request::Unsupported(
             "this runtime build does not expose Network Profile commands in the v1 contract".to_owned(),
         ),
@@ -349,6 +352,66 @@ fn torrent_request(args: &[String]) -> Result<Request, String> {
     }
 }
 
+fn credential_request(args: &[String]) -> Result<Request, String> {
+    use ControlCommand as C;
+    let action = args.first().map(String::as_str).unwrap_or("");
+    match action {
+        "store" if args.len() == 2 => {
+            let credential_id = required(args.get(1), "credential store <id> < secret.txt")?;
+            let secret = read_secret_from_stdin()?;
+            Ok(Request::Command(C::StoreCredential {
+                credential_id,
+                secret: CredentialSecret::new(secret),
+            }))
+        }
+        "delete" if args.len() == 2 => Ok(Request::Command(C::DeleteCredential {
+            credential_id: required(args.get(1), "credential delete <id>")?,
+        })),
+        _ => Err(
+            "credential action must be `store <id>` or `delete <id>`; store reads a secret from piped stdin"
+                .to_owned(),
+        ),
+    }
+}
+
+fn read_secret_from_stdin() -> Result<String, String> {
+    let stdin = io::stdin();
+    if stdin.is_terminal() {
+        return Err(
+            "credential input from an interactive terminal is disabled to avoid echo; pipe the secret through stdin"
+                .to_owned(),
+        );
+    }
+    let mut secret = String::new();
+    let read_result = stdin
+        .lock()
+        .take(16_386)
+        .read_to_string(&mut secret)
+        .map(|_| ());
+    if read_result.is_err() {
+        secret.zeroize();
+        return Err("could not read credential data from stdin".to_owned());
+    }
+    if secret.ends_with('\n') {
+        secret.pop();
+        if secret.ends_with('\r') {
+            secret.pop();
+        }
+    }
+    if secret.len() > 16_384 {
+        secret.zeroize();
+        return Err("credential input from stdin exceeds 16384 bytes".to_owned());
+    }
+    if secret.is_empty() || secret.contains('\0') {
+        secret.zeroize();
+        return Err(
+            "credential input from stdin must be non-empty and contain no NUL character"
+                .to_owned(),
+        );
+    }
+    Ok(secret)
+}
+
 fn required(value: Option<&String>, usage: &str) -> Result<String, String> {
     value
         .map(|value| value.trim())
@@ -443,6 +506,12 @@ fn ensure_command_available(
         ControlCommand::AddMediaDownload { .. } => ("addMediaDownload", Some("media.extraction")),
         ControlCommand::AddMediaPlaylist { .. } => ("addMediaPlaylist", Some("media.extraction")),
         ControlCommand::AddTorrent { .. } => ("addTorrent", Some("torrent.core")),
+        ControlCommand::StoreCredential { .. } => {
+            ("storeCredential", Some("security.credentials"))
+        }
+        ControlCommand::DeleteCredential { .. } => {
+            ("deleteCredential", Some("security.credentials"))
+        }
         ControlCommand::PauseTask { .. } => ("pauseTask", None),
         ControlCommand::ResumeTask { .. } => ("resumeTask", None),
         ControlCommand::RetryTask { .. } => ("retryTask", None),
@@ -634,6 +703,7 @@ fn print_help() {
          queue list|start|stop|create|update|delete|order|task-order ...\n\
          profile list|get|set|upsert|delete ... | rules list|add|delete ...\n\
          schedule list|add|update|delete|power ... | media add|playlist ... | torrent add <json>\n\
+         credential store <id> < secret.txt | credential delete <id>\n\
          events [cursor] | batch <json-command-array> | capabilities\n\
          Commands accept --idempotency-key <key> so retries after a timeout do not repeat mutations.\n\
          diagnostics | logs [limit] [trace|debug|info|warn|error] | network/config (runtime capability dependent)."

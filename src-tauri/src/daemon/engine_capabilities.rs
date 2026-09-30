@@ -1660,6 +1660,11 @@ pub fn all_engine_status(ffmpeg_bin: &str) -> Value {
                 "addTorrent" if !torrent_ready => {
                     Some("Native torrent engine is unavailable in this runtime.")
                 }
+                "storeCredential" | "deleteCredential"
+                    if !super::credential_store::CredentialStore::platform_supported() =>
+                {
+                    Some("This target was built without a supported native credential-store backend.")
+                }
                 _ => None,
             };
             if let Some(reason) = unavailable_reason {
