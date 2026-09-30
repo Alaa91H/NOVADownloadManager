@@ -188,14 +188,11 @@ Item {
     ScrollView {
         anchors.fill: parent
         clip: true
+        padding: 12
 
         ColumnLayout {
             width: parent.availableWidth
             spacing: 10
-            leftPadding: 12
-            rightPadding: 12
-            topPadding: 12
-            bottomPadding: 12
 
             RowLayout {
                 Layout.fillWidth: true

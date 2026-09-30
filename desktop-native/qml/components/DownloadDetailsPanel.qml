@@ -223,14 +223,11 @@ Rectangle {
 
             ScrollView {
                 clip: true
+                padding: 14
 
                 ColumnLayout {
                     width: parent.availableWidth
                     spacing: 12
-                    leftPadding: 14
-                    rightPadding: 14
-                    topPadding: 14
-                    bottomPadding: 14
 
                     ColumnLayout {
                         Layout.fillWidth: true
@@ -361,14 +358,11 @@ Rectangle {
 
             ScrollView {
                 clip: true
+                padding: 14
 
                 ColumnLayout {
                     width: parent.availableWidth
                     spacing: 12
-                    leftPadding: 14
-                    rightPadding: 14
-                    topPadding: 14
-                    bottomPadding: 14
 
                     Text {
                         text: root.t("common.sourceUrl")
@@ -461,14 +455,11 @@ Rectangle {
 
             ScrollView {
                 clip: true
+                padding: 14
 
                 ColumnLayout {
                     width: parent.availableWidth
                     spacing: 12
-                    leftPadding: 14
-                    rightPadding: 14
-                    topPadding: 14
-                    bottomPadding: 14
 
                     Rectangle {
                         Layout.fillWidth: true

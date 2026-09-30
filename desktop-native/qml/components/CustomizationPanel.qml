@@ -58,14 +58,11 @@ Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
+            padding: 14
 
             ColumnLayout {
                 width: parent.availableWidth
                 spacing: 16
-                leftPadding: 14
-                rightPadding: 14
-                topPadding: 14
-                bottomPadding: 14
 
                 Text {
                     text: root.t("settings.theme")
