@@ -293,8 +293,9 @@ impl WavPcm16Writer {
                 )
             })?;
 
-        let capacity = usize::try_from(chunk_bytes)
-            .map_err(|_| MediaProcessingError::Mux("PCM chunk exceeds addressable memory".to_owned()))?;
+        let capacity = usize::try_from(chunk_bytes).map_err(|_| {
+            MediaProcessingError::Mux("PCM chunk exceeds addressable memory".to_owned())
+        })?;
         let mut bytes = Vec::with_capacity(capacity);
         for sample in samples {
             let sample = if sample.is_finite() { *sample } else { 0.0 }.clamp(-1.0, 1.0);
@@ -319,10 +320,12 @@ impl WavPcm16Writer {
             .file
             .as_mut()
             .ok_or_else(|| MediaProcessingError::Mux("WAVE writer is closed".to_owned()))?;
-        let riff_size = u32::try_from(36_u64 + self.data_bytes)
-            .map_err(|_| MediaProcessingError::Mux("RIFF size exceeds its format limit".to_owned()))?;
-        let data_size = u32::try_from(self.data_bytes)
-            .map_err(|_| MediaProcessingError::Mux("WAVE data size exceeds its format limit".to_owned()))?;
+        let riff_size = u32::try_from(36_u64 + self.data_bytes).map_err(|_| {
+            MediaProcessingError::Mux("RIFF size exceeds its format limit".to_owned())
+        })?;
+        let data_size = u32::try_from(self.data_bytes).map_err(|_| {
+            MediaProcessingError::Mux("WAVE data size exceeds its format limit".to_owned())
+        })?;
         file.seek(SeekFrom::Start(4))
             .and_then(|_| file.write_all(&riff_size.to_le_bytes()))
             .and_then(|_| file.seek(SeekFrom::Start(self.data_size_offset)))
@@ -370,7 +373,10 @@ fn unique_sibling_path(destination: &Path, tag: &str) -> PathBuf {
         .filter(|value| !value.is_empty())
         .unwrap_or("nova-audio");
     let suffix = NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed);
-    parent.join(format!("{stem}.nova-{tag}-{}-{suffix}.tmp", std::process::id()))
+    parent.join(format!(
+        "{stem}.nova-{tag}-{}-{suffix}.tmp",
+        std::process::id()
+    ))
 }
 
 fn commit_output(temporary: &Path, destination: &Path) -> Result<(), MediaProcessingError> {
@@ -387,7 +393,9 @@ fn commit_output(temporary: &Path, destination: &Path) -> Result<(), MediaProces
 
     let backup = unique_sibling_path(destination, "audio-backup");
     fs::rename(destination, &backup).map_err(|error| {
-        MediaProcessingError::Io(format!("could not preserve the original media file: {error}"))
+        MediaProcessingError::Io(format!(
+            "could not preserve the original media file: {error}"
+        ))
     })?;
     if let Err(error) = fs::rename(temporary, destination) {
         if let Err(restore_error) = fs::rename(&backup, destination) {
@@ -436,8 +444,10 @@ mod tests {
         file.write_all(&16_u32.to_le_bytes()).expect("fmt size");
         file.write_all(&1_u16.to_le_bytes()).expect("PCM");
         file.write_all(&1_u16.to_le_bytes()).expect("mono");
-        file.write_all(&48_000_u32.to_le_bytes()).expect("sample rate");
-        file.write_all(&96_000_u32.to_le_bytes()).expect("byte rate");
+        file.write_all(&48_000_u32.to_le_bytes())
+            .expect("sample rate");
+        file.write_all(&96_000_u32.to_le_bytes())
+            .expect("byte rate");
         file.write_all(&2_u16.to_le_bytes()).expect("block align");
         file.write_all(&16_u16.to_le_bytes()).expect("bits");
         file.write_all(b"data").expect("data chunk");
@@ -457,7 +467,9 @@ mod tests {
             &source,
             &destination,
             &|| MediaProcessingControl::Continue,
-            &|update: &MediaProcessingProgress| updates.lock().expect("progress").push(update.clone()),
+            &|update: &MediaProcessingProgress| {
+                updates.lock().expect("progress").push(update.clone())
+            },
         )
         .expect("local audio conversion");
 
@@ -465,13 +477,23 @@ mod tests {
         assert_eq!(&bytes[..4], b"RIFF");
         assert_eq!(&bytes[8..12], b"WAVE");
         assert_eq!(u16::from_le_bytes([bytes[22], bytes[23]]), 1);
-        assert_eq!(u32::from_le_bytes(bytes[24..28].try_into().expect("sample rate")), 48_000);
+        assert_eq!(
+            u32::from_le_bytes(bytes[24..28].try_into().expect("sample rate")),
+            48_000
+        );
         assert_eq!(u16::from_le_bytes([bytes[34], bytes[35]]), 16);
         assert_eq!(result.sample_rate_hz, 48_000);
         assert_eq!(result.channels, 1);
         assert_eq!(result.audio_frames, 5);
         assert_eq!(result.output_bytes, bytes.len() as u64);
-        assert_eq!(updates.lock().expect("progress").last().map(|item| item.phase), Some(MediaProcessingPhase::Completed));
+        assert_eq!(
+            updates
+                .lock()
+                .expect("progress")
+                .last()
+                .map(|item| item.phase),
+            Some(MediaProcessingPhase::Completed)
+        );
 
         let _ = fs::remove_file(source);
         let _ = fs::remove_file(destination);
@@ -492,7 +514,10 @@ mod tests {
         );
 
         assert_eq!(result, Err(MediaProcessingError::Cancelled));
-        assert_eq!(fs::read(&destination).expect("unchanged output"), b"keep existing output");
+        assert_eq!(
+            fs::read(&destination).expect("unchanged output"),
+            b"keep existing output"
+        );
 
         let _ = fs::remove_file(source);
         let _ = fs::remove_file(destination);

@@ -7,15 +7,15 @@
 //! shell, subprocess, network resolver, or UI dependency.
 
 mod capabilities;
-mod native_codecs;
 mod demux;
 mod ebml_muxer;
 mod error;
 mod flac;
-mod local_audio;
 mod job;
+mod local_audio;
 mod mp4;
 mod mux;
+mod native_codecs;
 mod pipeline;
 mod probe;
 mod progress;
@@ -25,14 +25,6 @@ mod types;
 mod webm;
 
 pub use capabilities::{native_media_processing_capabilities, NativeMediaProcessingCapabilities};
-pub use native_codecs::{
-    mux_local_media_tracks, native_media_codec_capabilities, transcode_local_media,
-    embed_local_media_subtitles, validate_local_media_mux_job,
-    validate_local_media_subtitle_embed_job, validate_local_media_transcode_job,
-    NativeMediaCodecCapabilities, NativeMediaCodecTrackCapabilities, NativeMediaMuxJob,
-    NativeMediaMuxResult, NativeMediaSubtitleEmbedJob, NativeMediaTranscodeJob,
-    NativeMediaTranscodeResult,
-};
 pub use demux::MediaDemuxer;
 pub use ebml_muxer::{
     mux_demuxers_to_matroska, mux_demuxers_to_matroska_controlled, mux_demuxers_to_webm,
@@ -48,6 +40,13 @@ pub use mp4::{
     Mp4Sample, Mp4TrackIndex, ParsedMp4,
 };
 pub use mux::{MediaMuxResult, MediaMuxer};
+pub use native_codecs::{
+    embed_local_media_subtitles, mux_local_media_tracks, native_media_codec_capabilities,
+    transcode_local_media, validate_local_media_mux_job, validate_local_media_subtitle_embed_job,
+    validate_local_media_transcode_job, NativeMediaCodecCapabilities,
+    NativeMediaCodecTrackCapabilities, NativeMediaMuxJob, NativeMediaMuxResult,
+    NativeMediaSubtitleEmbedJob, NativeMediaTranscodeJob, NativeMediaTranscodeResult,
+};
 pub use pipeline::{plan_media_pipeline, MediaPipelinePlan, MediaPipelineStage};
 pub use probe::{probe_file_container, sniff_media_container};
 pub use progress::{

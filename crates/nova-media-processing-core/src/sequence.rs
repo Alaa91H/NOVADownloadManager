@@ -81,9 +81,7 @@ impl SequentialMediaDemuxer {
         probe.duration_millis = inputs
             .iter()
             .map(|input| input.probe().duration_millis)
-            .try_fold(0_u64, |total, duration| {
-                total.checked_add(duration?)
-            });
+            .try_fold(0_u64, |total, duration| total.checked_add(duration?));
 
         let timelines = probe
             .tracks
@@ -184,8 +182,7 @@ impl MediaDemuxer for SequentialMediaDemuxer {
             }
             if packet.flags.discontinuity || packet.flags.corrupted {
                 return Err(MediaProcessingError::UnsupportedOperation(
-                    "sequential media does not merge discontinuous or corrupted packets"
-                        .to_owned(),
+                    "sequential media does not merge discontinuous or corrupted packets".to_owned(),
                 ));
             }
 
@@ -207,9 +204,10 @@ impl MediaDemuxer for SequentialMediaDemuxer {
                     None => 0,
                 },
             };
-            let adjusted_dts = dts.value.checked_add(offset).ok_or_else(|| {
-                MediaProcessingError::Demux("adjusted DTS overflow".to_owned())
-            })?;
+            let adjusted_dts = dts
+                .value
+                .checked_add(offset)
+                .ok_or_else(|| MediaProcessingError::Demux("adjusted DTS overflow".to_owned()))?;
             if let Some(expected_dts) = timeline.end_dts {
                 if adjusted_dts != expected_dts {
                     return Err(MediaProcessingError::UnsupportedOperation(format!(
@@ -217,9 +215,9 @@ impl MediaDemuxer for SequentialMediaDemuxer {
                     )));
                 }
             }
-            let end_dts = adjusted_dts.checked_add(duration.value).ok_or_else(|| {
-                MediaProcessingError::Demux("media end DTS overflow".to_owned())
-            })?;
+            let end_dts = adjusted_dts
+                .checked_add(duration.value)
+                .ok_or_else(|| MediaProcessingError::Demux("media end DTS overflow".to_owned()))?;
             timeline.segment_offset = Some(offset);
             timeline.end_dts = Some(end_dts);
 
@@ -277,11 +275,11 @@ fn same_track_definition(left: &MediaTrack, right: &MediaTrack) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::VecDeque;
     use crate::{
         MediaCodec, MediaContainer, MediaPacketFlags, MediaTimeBase, MediaTrackKind,
         VideoParameters,
     };
+    use std::collections::VecDeque;
 
     struct MockDemuxer {
         probe: MediaProbe,
@@ -337,9 +335,18 @@ mod tests {
         let time_base = MediaTimeBase::new(1, 1000).expect("valid time base");
         MediaPacket {
             track_id,
-            pts: Some(MediaTimestamp { value: dts, time_base }),
-            dts: Some(MediaTimestamp { value: dts, time_base }),
-            duration: Some(MediaTimestamp { value: duration, time_base }),
+            pts: Some(MediaTimestamp {
+                value: dts,
+                time_base,
+            }),
+            dts: Some(MediaTimestamp {
+                value: dts,
+                time_base,
+            }),
+            duration: Some(MediaTimestamp {
+                value: duration,
+                time_base,
+            }),
             flags: MediaPacketFlags {
                 keyframe: true,
                 discontinuity: false,
@@ -369,8 +376,14 @@ mod tests {
         .expect("stable sequential media");
 
         assert_eq!(demuxer.probe().duration_millis, Some(2000));
-        let first = demuxer.next_packet().expect("first packet").expect("packet");
-        let second = demuxer.next_packet().expect("second packet").expect("packet");
+        let first = demuxer
+            .next_packet()
+            .expect("first packet")
+            .expect("packet");
+        let second = demuxer
+            .next_packet()
+            .expect("second packet")
+            .expect("packet");
         assert_eq!(first.dts.map(|value| value.value), Some(0));
         assert_eq!(second.dts.map(|value| value.value), Some(1000));
         assert_eq!(second.pts.map(|value| value.value), Some(1000));
@@ -414,8 +427,14 @@ mod tests {
     #[test]
     fn sequential_demuxer_rejects_codec_changes_and_timeline_gaps() {
         assert!(SequentialMediaDemuxer::new(vec![
-            input(vec![video_track(1, b"first-config")], vec![packet(1, 0, 1000)]),
-            input(vec![video_track(1, b"changed-config")], vec![packet(1, 0, 1000)]),
+            input(
+                vec![video_track(1, b"first-config")],
+                vec![packet(1, 0, 1000)]
+            ),
+            input(
+                vec![video_track(1, b"changed-config")],
+                vec![packet(1, 0, 1000)]
+            ),
         ])
         .is_err());
 

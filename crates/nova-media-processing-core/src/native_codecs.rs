@@ -7,8 +7,8 @@ use std::time::Duration;
 
 use rff::core::{CodecId, Dictionary, MediaType, SampleFormat};
 use rff::transcode::{
-    InputSpec, MapSelector, MapSpec, OutputSpec, StreamCodec, TranscodeControl,
-    TranscodeReport, TranscodeSpec,
+    InputSpec, MapSelector, MapSpec, OutputSpec, StreamCodec, TranscodeControl, TranscodeReport,
+    TranscodeSpec,
 };
 use rff::Engine;
 
@@ -154,7 +154,12 @@ fn track_capabilities(engine: &Engine, media_type: MediaType) -> NativeMediaCode
         .formats
         .iter()
         .filter(|format| format.can_demux() && format.mux_caps.accepts_media(media_type))
-        .flat_map(|format| format.extensions.iter().map(|extension| (*extension).to_owned()))
+        .flat_map(|format| {
+            format
+                .extensions
+                .iter()
+                .map(|extension| (*extension).to_owned())
+        })
         .collect::<std::collections::BTreeSet<_>>()
         .into_iter()
         .collect();
@@ -169,12 +174,7 @@ fn track_capabilities(engine: &Engine, media_type: MediaType) -> NativeMediaCode
     }
 }
 
-fn format_accepts_codec(
-    engine: &Engine,
-    format_name: &str,
-    codec: CodecId,
-    audio: bool,
-) -> bool {
+fn format_accepts_codec(engine: &Engine, format_name: &str, codec: CodecId, audio: bool) -> bool {
     let media_type = if audio {
         MediaType::Audio
     } else {
@@ -220,8 +220,7 @@ fn format_accepts_subtitle_codec(engine: &Engine, format_name: &str, codec: Code
                         .and_then(|value| value.as_array())
                         .is_some_and(|args| {
                             args.windows(2).any(|pair| {
-                                pair[0].as_str() == Some("-c:s")
-                                    && pair[1].as_str() == Some("copy")
+                                pair[0].as_str() == Some("-c:s") && pair[1].as_str() == Some("copy")
                             })
                         })
             })
@@ -300,9 +299,7 @@ pub fn transcode_local_media(
             job.source.display()
         )));
     }
-    let source_bytes = fs::metadata(&job.source)
-        .map_err(io_error)?
-        .len();
+    let source_bytes = fs::metadata(&job.source).map_err(io_error)?.len();
     if source_bytes == 0 {
         return Err(MediaProcessingError::InvalidJob(
             "media source is empty".to_owned(),
@@ -403,7 +400,9 @@ pub fn transcode_local_media(
     };
 
     let mut last_report = TranscodeReport::default();
-    progress.publish(&MediaProcessingProgress::new(MediaProcessingPhase::Decoding));
+    progress.publish(&MediaProcessingProgress::new(
+        MediaProcessingPhase::Decoding,
+    ));
     let report_result = rff::transcode::run_controlled(
         &engine,
         &spec,
@@ -582,9 +581,7 @@ pub fn mux_local_media_tracks(
 
 /// Validate source and destination containers before starting the downloads
 /// that will later be combined by [`mux_local_media_tracks`].
-pub fn validate_local_media_mux_job(
-    job: &NativeMediaMuxJob,
-) -> Result<(), MediaProcessingError> {
+pub fn validate_local_media_mux_job(job: &NativeMediaMuxJob) -> Result<(), MediaProcessingError> {
     for (name, path) in [
         ("video source", &job.video_source),
         ("audio source", &job.audio_source),
@@ -822,12 +819,10 @@ pub fn validate_local_media_subtitle_embed_job(
     }
     let (output_format, subtitle_codec) = subtitle_output_target(media_extension, &engine)?;
     if !format_accepts_subtitle_codec(&engine, &output_format, subtitle_codec) {
-        return Err(MediaProcessingError::UnsupportedCodec(
-            format!(
-                "subtitle codec '{}' is unavailable for '.{media_extension}' in this local codec build",
-                subtitle_codec.name()
-            ),
-        ));
+        return Err(MediaProcessingError::UnsupportedCodec(format!(
+            "subtitle codec '{}' is unavailable for '.{media_extension}' in this local codec build",
+            subtitle_codec.name()
+        )));
     }
     for path in &job.subtitles {
         let extension = path
@@ -930,17 +925,26 @@ fn validate_job(job: &NativeMediaTranscodeJob) -> Result<(), MediaProcessingErro
             )));
         }
     }
-    if job.frame_rate_milli.is_some_and(|rate| rate == 0 || rate > 240_000) {
+    if job
+        .frame_rate_milli
+        .is_some_and(|rate| rate == 0 || rate > 240_000)
+    {
         return Err(MediaProcessingError::InvalidJob(
             "frame rate must be greater than zero and at most 240 fps".to_owned(),
         ));
     }
-    if job.audio_sample_rate_hz.is_some_and(|rate| !(8_000..=192_000).contains(&rate)) {
+    if job
+        .audio_sample_rate_hz
+        .is_some_and(|rate| !(8_000..=192_000).contains(&rate))
+    {
         return Err(MediaProcessingError::InvalidJob(
             "audio sample rate must be between 8 kHz and 192 kHz".to_owned(),
         ));
     }
-    if job.audio_channels.is_some_and(|channels| !(1..=2).contains(&channels)) {
+    if job
+        .audio_channels
+        .is_some_and(|channels| !(1..=2).contains(&channels))
+    {
         return Err(MediaProcessingError::UnsupportedOperation(
             "local audio channel conversion currently supports mono and stereo".to_owned(),
         ));
@@ -948,8 +952,15 @@ fn validate_job(job: &NativeMediaTranscodeJob) -> Result<(), MediaProcessingErro
     if let Some(preset) = job.preset.as_deref() {
         if !matches!(
             preset,
-            "ultrafast" | "superfast" | "veryfast" | "faster" | "fast" | "medium"
-                | "slow" | "slower" | "veryslow"
+            "ultrafast"
+                | "superfast"
+                | "veryfast"
+                | "faster"
+                | "fast"
+                | "medium"
+                | "slow"
+                | "slower"
+                | "veryslow"
         ) {
             return Err(MediaProcessingError::InvalidJob(
                 "unsupported local encoder preset".to_owned(),
@@ -1026,8 +1037,18 @@ pub fn validate_local_media_transcode_job(
         sample_format,
     )?;
     for (track, source_name, requested_output_codec, audio) in [
-        ("video", job.source_video_codec.as_deref(), job.video_codec.as_deref(), false),
-        ("audio", job.source_audio_codec.as_deref(), job.audio_codec.as_deref(), true),
+        (
+            "video",
+            job.source_video_codec.as_deref(),
+            job.video_codec.as_deref(),
+            false,
+        ),
+        (
+            "audio",
+            job.source_audio_codec.as_deref(),
+            job.audio_codec.as_deref(),
+            true,
+        ),
     ] {
         let Some(source_name) = source_name.filter(|name| !name.trim().is_empty()) else {
             continue;
@@ -1037,8 +1058,8 @@ pub fn validate_local_media_transcode_job(
                 "the source {track} codec '{source_name}' is not recognized by the local codec backend"
             ))
         })?;
-        let reencoding = requested_output_codec
-            .is_some_and(|codec| !codec.eq_ignore_ascii_case("copy"));
+        let reencoding =
+            requested_output_codec.is_some_and(|codec| !codec.eq_ignore_ascii_case("copy"));
         if reencoding {
             engine.codecs.find_decoder(source_codec).map_err(|error| {
                 MediaProcessingError::UnsupportedCodec(format!(
@@ -1157,7 +1178,10 @@ fn source_codec_id(codec: &str) -> Option<CodecId> {
 }
 
 fn input_format_name(container: &str) -> Option<String> {
-    let value = container.trim().trim_start_matches('.').to_ascii_lowercase();
+    let value = container
+        .trim()
+        .trim_start_matches('.')
+        .to_ascii_lowercase();
     match value.as_str() {
         "mp4" | "m4a" | "m4v" | "mov" | "3gp" => Some("mp4".to_owned()),
         "mkv" | "mka" | "webm" => Some("matroska".to_owned()),
@@ -1177,20 +1201,32 @@ fn input_format_name(container: &str) -> Option<String> {
 }
 
 fn subtitle_input_format(extension: &str) -> Option<&'static str> {
-    match extension.trim().trim_start_matches('.').to_ascii_lowercase().as_str() {
+    match extension
+        .trim()
+        .trim_start_matches('.')
+        .to_ascii_lowercase()
+        .as_str()
+    {
         "srt" => Some("srt"),
         "vtt" | "webvtt" => Some("webvtt"),
         _ => None,
     }
 }
 
-fn video_filter(width: Option<u32>, height: Option<u32>) -> Result<Option<String>, MediaProcessingError> {
+fn video_filter(
+    width: Option<u32>,
+    height: Option<u32>,
+) -> Result<Option<String>, MediaProcessingError> {
     if width.is_none() && height.is_none() {
         return Ok(None);
     }
     if width.is_some() || height.is_some() {
-        let width = width.map(|value| value.to_string()).unwrap_or_else(|| "-2".to_owned());
-        let height = height.map(|value| value.to_string()).unwrap_or_else(|| "-2".to_owned());
+        let width = width
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "-2".to_owned());
+        let height = height
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "-2".to_owned());
         return Ok(Some(format!("scale={width}:{height}")));
     }
     Err(MediaProcessingError::InvalidJob(
@@ -1323,7 +1359,10 @@ mod tests {
         assert!(!capabilities.subtitle_containers.is_empty());
         for extension in &capabilities.subtitle_containers {
             let (format, codec) = subtitle_output_target(extension, &engine).unwrap();
-            let format = engine.formats.by_name(&format).expect("registered output format");
+            let format = engine
+                .formats
+                .by_name(&format)
+                .expect("registered output format");
             assert!(format.mux_caps.accepts(codec));
             assert!(format_accepts_subtitle_codec(&engine, format.name, codec));
         }
@@ -1349,10 +1388,20 @@ mod tests {
         assert!(capabilities.video.encoders.contains(&"h264".to_owned()));
         assert!(capabilities.video.decoders.contains(&"av2".to_owned()));
         assert!(!capabilities.video.encoders.contains(&"av2".to_owned()));
-        assert!(capabilities.video.input_containers.contains(&"ivf".to_owned()));
-        assert!(capabilities.video.output_containers.iter().all(|container| {
-            capabilities.video.encoders_by_container.contains_key(container)
-        }));
+        assert!(capabilities
+            .video
+            .input_containers
+            .contains(&"ivf".to_owned()));
+        assert!(capabilities
+            .video
+            .output_containers
+            .iter()
+            .all(|container| {
+                capabilities
+                    .video
+                    .encoders_by_container
+                    .contains_key(container)
+            }));
     }
 
     #[test]
@@ -1382,17 +1431,35 @@ mod tests {
             engine
                 .formats
                 .iter()
-                .filter(|format| if muxer { format.can_mux() } else { format.can_demux() })
+                .filter(|format| {
+                    if muxer {
+                        format.can_mux()
+                    } else {
+                        format.can_demux()
+                    }
+                })
                 .map(|format| format.name.to_owned())
                 .collect::<BTreeSet<_>>()
                 .into_iter()
                 .collect::<Vec<_>>()
         };
 
-        assert_eq!(capabilities.audio.decoders, codec_names(MediaType::Audio, false));
-        assert_eq!(capabilities.audio.encoders, codec_names(MediaType::Audio, true));
-        assert_eq!(capabilities.video.decoders, codec_names(MediaType::Video, false));
-        assert_eq!(capabilities.video.encoders, codec_names(MediaType::Video, true));
+        assert_eq!(
+            capabilities.audio.decoders,
+            codec_names(MediaType::Audio, false)
+        );
+        assert_eq!(
+            capabilities.audio.encoders,
+            codec_names(MediaType::Audio, true)
+        );
+        assert_eq!(
+            capabilities.video.decoders,
+            codec_names(MediaType::Video, false)
+        );
+        assert_eq!(
+            capabilities.video.encoders,
+            codec_names(MediaType::Video, true)
+        );
         assert_eq!(capabilities.demuxers, format_names(false));
         assert_eq!(capabilities.muxers, format_names(true));
     }
@@ -1433,7 +1500,10 @@ mod tests {
         )
         .expect_err("cancel before touching output");
         assert_eq!(error, MediaProcessingError::Cancelled);
-        assert_eq!(fs::read(&output).expect("existing output remains"), b"keep-existing-output");
+        assert_eq!(
+            fs::read(&output).expect("existing output remains"),
+            b"keep-existing-output"
+        );
         let _ = fs::remove_file(output);
     }
 }

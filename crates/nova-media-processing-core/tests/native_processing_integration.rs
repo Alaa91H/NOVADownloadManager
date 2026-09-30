@@ -4,8 +4,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use nova_media_processing_core::{
-    MediaProcessingControl, MediaProcessingProgress, NativeMediaTranscodeJob,
-    transcode_local_media,
+    transcode_local_media, MediaProcessingControl, MediaProcessingProgress, NativeMediaTranscodeJob,
 };
 
 struct ScratchFiles(Vec<PathBuf>);
@@ -110,8 +109,8 @@ fn native_audio_transcode_writes_decodable_flac_without_an_external_runtime() {
     job.include_audio = true;
     let control = || MediaProcessingControl::Continue;
     let progress = |_: &MediaProcessingProgress| {};
-    let result = transcode_local_media(&job, &control, &progress)
-        .expect("native WAV-to-FLAC transcode");
+    let result =
+        transcode_local_media(&job, &control, &progress).expect("native WAV-to-FLAC transcode");
 
     let output = fs::read(&destination).expect("read native FLAC output");
     assert!(output.starts_with(b"fLaC"), "output must be a FLAC stream");
