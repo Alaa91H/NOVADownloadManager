@@ -15,6 +15,8 @@ const desktopMediaPage = read('desktop-native/qml/pages/MediaDownloaderPage.qml'
 const desktopBatchPage = read('desktop-native/qml/pages/BatchImportPage.qml');
 const desktopApiHeader = read('desktop-native/src/api/NovaApiClient.h');
 const desktopApiSource = read('desktop-native/src/api/NovaApiClient.cpp');
+const cliSource = read('crates/nova-cli/src/main.rs');
+const telegramSource = read('src-tauri/src/daemon/telegram.rs');
 
 const errors = [];
 const expectedStates = contract.taskLifecycle.states;
@@ -104,6 +106,10 @@ const requiredSourceFragments = [
   [androidNativeCore, 'fun runtimeCapabilityRegistry(): NativeCapabilityRegistry', 'Android capability registry parser'],
   [desktopApiHeader, 'Q_INVOKABLE bool runtimeCapabilitySupported', 'Qt runtime capability adapter declaration'],
   [desktopApiSource, 'QString NovaApiClient::runtimeCapabilityStatus', 'Qt runtime capability adapter implementation'],
+  [cliSource, 'fn ensure_runtime_entry_supported', 'CLI runtime capability validation'],
+  [cliSource, '"/capabilityRegistry/entries"', 'CLI unified capability registry path'],
+  [telegramSource, '"/capabilityRegistry/schemaVersion"', 'Telegram capability registry version reporting'],
+  [telegramSource, 'Runtime capability registry v{registry_version}', 'Telegram capability registry summary'],
   [desktopMediaPage, 'capabilitySupported("media.extraction")', 'Qt media extraction capability gate'],
   [desktopMediaPage, 'capabilitySupported("media.audioTranscode")', 'Qt audio transcode capability gate'],
   [desktopMediaPage, 'capabilitySupported("media.videoTranscode")', 'Qt video transcode capability gate'],

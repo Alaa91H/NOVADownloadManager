@@ -602,13 +602,53 @@ fn handle_extended_control_command(
         })),
         "/capabilities" => Some(
             run_control_query(state, rt, Query::Capabilities).map(|value| {
-                let capabilities = value
-                    .pointer("/controlPlane/commandCapabilities")
+                let entries = value
+                    .pointer("/capabilityRegistry/entries")
+                    .and_then(serde_json::Value::as_array)
                     .cloned()
-                    .unwrap_or_else(|| serde_json::json!([]));
+                    .unwrap_or_default();
+                let supported = entries
+                    .iter()
+                    .filter(|entry| {
+                        entry.get("status").and_then(serde_json::Value::as_str)
+                            == Some("supported")
+                    })
+                    .count();
+                let unavailable = entries
+                    .iter()
+                    .filter(|entry| {
+                        entry.get("status").and_then(serde_json::Value::as_str)
+                            != Some("supported")
+                    })
+                    .filter_map(|entry| entry.get("id").and_then(serde_json::Value::as_str))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let commands = value
+                    .pointer("/controlPlane/commandCapabilities")
+                    .and_then(serde_json::Value::as_array)
+                    .cloned()
+                    .unwrap_or_default();
+                let supported_commands = commands
+                    .iter()
+                    .filter(|command| {
+                        command.get("status").and_then(serde_json::Value::as_str)
+                            == Some("supported")
+                    })
+                    .count();
+                let registry_version = value
+                    .pointer("/capabilityRegistry/schemaVersion")
+                    .and_then(serde_json::Value::as_u64)
+                    .unwrap_or(0);
+                let unavailable = if unavailable.is_empty() {
+                    "none".to_owned()
+                } else {
+                    unavailable
+                };
                 format!(
-                    "Runtime capabilities:\n{}",
-                    escape_html(&capabilities.to_string())
+                    "Runtime capability registry v{registry_version}: {supported}/{} supported.\nNot supported/experimental/restricted: {}\nControl Plane commands: {supported_commands}/{} supported.",
+                    entries.len(),
+                    escape_html(&unavailable),
+                    commands.len()
                 )
             }),
         ),

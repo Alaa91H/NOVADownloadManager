@@ -386,7 +386,7 @@ fn ensure_command_available(
     capabilities: &serde_json::Value,
     command: &ControlCommand,
 ) -> Result<(), String> {
-    let capability_id = match command {
+    let (capability_id, runtime_capability_id) = match command {
         ControlCommand::Batch { mode, commands } => {
             let batch_id = match mode {
                 BatchMode::BestEffort => "batch.bestEffort",
@@ -398,36 +398,61 @@ fn ensure_command_available(
             }
             return Ok(());
         }
-        ControlCommand::AddDownload { .. } => "addDownload",
-        ControlCommand::AddMediaDownload { .. } => "addMediaDownload",
-        ControlCommand::AddMediaPlaylist { .. } => "addMediaPlaylist",
-        ControlCommand::AddTorrent { .. } => "addTorrent",
-        ControlCommand::PauseTask { .. } => "pauseTask",
-        ControlCommand::ResumeTask { .. } => "resumeTask",
-        ControlCommand::RetryTask { .. } => "retryTask",
-        ControlCommand::RedownloadTask { .. } => "redownloadTask",
-        ControlCommand::DeleteTask { .. } => "deleteTask",
-        ControlCommand::MoveTask { .. } => "moveTask",
-        ControlCommand::SetTaskPriority { .. } => "setTaskPriority",
-        ControlCommand::UpdateTask { .. } => "updateTask",
-        ControlCommand::StartQueue { .. } => "startQueue",
-        ControlCommand::StopQueue { .. } => "stopQueue",
-        ControlCommand::CreateQueue { .. } => "createQueue",
-        ControlCommand::UpdateQueue { .. } => "updateQueue",
-        ControlCommand::DeleteQueue { .. } => "deleteQueue",
-        ControlCommand::ReorderQueues { .. } => "reorderQueues",
-        ControlCommand::ReorderQueueTasks { .. } => "reorderQueueTasks",
-        ControlCommand::SetActiveProfile { .. } => "setActiveProfile",
-        ControlCommand::UpsertProfile { .. } => "upsertProfile",
-        ControlCommand::DeleteProfile { .. } => "deleteProfile",
-        ControlCommand::AddRule { .. } => "addRule",
-        ControlCommand::DeleteRule { .. } => "deleteRule",
-        ControlCommand::AddSchedule { .. } => "addSchedule",
-        ControlCommand::UpdateSchedule { .. } => "updateSchedule",
-        ControlCommand::DeleteSchedule { .. } => "deleteSchedule",
-        ControlCommand::SetSchedulerPowerCommands { .. } => "setSchedulerPowerCommands",
+        ControlCommand::AddDownload { .. } => ("addDownload", Some("download.direct")),
+        ControlCommand::AddMediaDownload { .. } => ("addMediaDownload", Some("media.extraction")),
+        ControlCommand::AddMediaPlaylist { .. } => ("addMediaPlaylist", Some("media.extraction")),
+        ControlCommand::AddTorrent { .. } => ("addTorrent", Some("torrent.core")),
+        ControlCommand::PauseTask { .. } => ("pauseTask", None),
+        ControlCommand::ResumeTask { .. } => ("resumeTask", None),
+        ControlCommand::RetryTask { .. } => ("retryTask", None),
+        ControlCommand::RedownloadTask { .. } => ("redownloadTask", None),
+        ControlCommand::DeleteTask { .. } => ("deleteTask", None),
+        ControlCommand::MoveTask { .. } => ("moveTask", None),
+        ControlCommand::SetTaskPriority { .. } => ("setTaskPriority", None),
+        ControlCommand::UpdateTask { .. } => ("updateTask", None),
+        ControlCommand::StartQueue { .. } => ("startQueue", None),
+        ControlCommand::StopQueue { .. } => ("stopQueue", None),
+        ControlCommand::CreateQueue { .. } => ("createQueue", None),
+        ControlCommand::UpdateQueue { .. } => ("updateQueue", None),
+        ControlCommand::DeleteQueue { .. } => ("deleteQueue", None),
+        ControlCommand::ReorderQueues { .. } => ("reorderQueues", None),
+        ControlCommand::ReorderQueueTasks { .. } => ("reorderQueueTasks", None),
+        ControlCommand::SetActiveProfile { .. } => ("setActiveProfile", None),
+        ControlCommand::UpsertProfile { .. } => ("upsertProfile", None),
+        ControlCommand::DeleteProfile { .. } => ("deleteProfile", None),
+        ControlCommand::AddRule { .. } => ("addRule", None),
+        ControlCommand::DeleteRule { .. } => ("deleteRule", None),
+        ControlCommand::AddSchedule { .. } => ("addSchedule", None),
+        ControlCommand::UpdateSchedule { .. } => ("updateSchedule", None),
+        ControlCommand::DeleteSchedule { .. } => ("deleteSchedule", None),
+        ControlCommand::SetSchedulerPowerCommands { .. } => ("setSchedulerPowerCommands", None),
     };
-    ensure_capability_supported(capabilities, capability_id)
+    ensure_capability_supported(capabilities, capability_id)?;
+    if let Some(runtime_capability_id) = runtime_capability_id {
+        ensure_runtime_entry_supported(capabilities, runtime_capability_id)?;
+    }
+    Ok(())
+}
+
+fn ensure_runtime_entry_supported(
+    capabilities: &serde_json::Value,
+    capability_id: &str,
+) -> Result<(), String> {
+    let entries = capabilities
+        .pointer("/capabilityRegistry/entries")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| "runtime did not provide its unified capability registry".to_owned())?;
+    let status = entries
+        .iter()
+        .find(|entry| entry.get("id").and_then(serde_json::Value::as_str) == Some(capability_id))
+        .and_then(|entry| entry.get("status"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("unavailable");
+    if status == "supported" {
+        Ok(())
+    } else {
+        Err(format!("runtime capability `{capability_id}` is {status}"))
+    }
 }
 
 fn ensure_capability_supported(
