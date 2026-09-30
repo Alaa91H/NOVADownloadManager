@@ -891,7 +891,7 @@
           "file": "src-tauri/src/daemon/routes/commands.rs",
           "allOf": [
             "ControlCommand::AddTorrent",
-            "create_torrent_task"
+            "create_torrent_download_service"
           ]
         },
         {
