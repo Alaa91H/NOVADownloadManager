@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Updated atomic queue-slot accounting to the current Rust atomic update API.
+- Kept atomic queue-slot accounting compatible with the declared Rust 1.85 minimum while avoiding deprecated atomic APIs.
 - Built and verified the native libcurl dependency in Rust compatibility CI instead of exercising an unconfigured system fallback.
 - Replaced deprecated Android SDK Manager invocations in CI with the current Android SDK command-line interface.
 

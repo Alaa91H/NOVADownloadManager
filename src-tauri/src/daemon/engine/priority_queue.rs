@@ -79,6 +79,24 @@ pub struct PriorityBandwidthQueue {
 }
 
 impl PriorityBandwidthQueue {
+    fn update_active_downloads(&self, mut update: impl FnMut(u32) -> Option<u32>) {
+        let mut current = self.active_downloads.load(AtomicOrder::Relaxed);
+        loop {
+            let Some(next) = update(current) else {
+                return;
+            };
+            match self.active_downloads.compare_exchange_weak(
+                current,
+                next,
+                AtomicOrder::AcqRel,
+                AtomicOrder::Relaxed,
+            ) {
+                Ok(_) => return,
+                Err(observed) => current = observed,
+            }
+        }
+    }
+
     pub fn new(total_bandwidth_kbps: u64) -> Self {
         Self {
             entries: Arc::new(Mutex::new(Vec::new())),
@@ -130,11 +148,7 @@ impl PriorityBandwidthQueue {
         // Do not let repeated or racing lifecycle notifications wrap the
         // active count to zero; that would make the queue admit unlimited
         // additional work while downloads are still in flight.
-        let _ = self.active_downloads.try_update(
-            AtomicOrder::AcqRel,
-            AtomicOrder::Relaxed,
-            |current| Some(current.saturating_add(1)),
-        );
+        self.update_active_downloads(|current| Some(current.saturating_add(1)));
         self.reallocate();
     }
 
@@ -143,13 +157,9 @@ impl PriorityBandwidthQueue {
     /// old worker becomes stale and cannot run its normal completion cleanup,
     /// while the new generation must keep the same priority and allocation.
     pub fn release_active_slot(&self) {
-        // Use try_update for atomic decrement to prevent u32 underflow from
-        // concurrent lifecycle notifications (TOCTOU race).
-        let _ = self.active_downloads.try_update(
-            AtomicOrder::AcqRel,
-            AtomicOrder::Relaxed,
-            |current| current.checked_sub(1),
-        );
+        // Retry compare-exchange after contention and leave zero unchanged to
+        // prevent underflow from concurrent lifecycle notifications.
+        self.update_active_downloads(|current| current.checked_sub(1));
         self.reallocate();
     }
 
