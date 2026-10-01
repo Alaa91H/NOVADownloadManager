@@ -23,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added desktop runtime regression checks for backend startup, window geometry, Arabic settings layout, and QML style configuration.
 - Updated the native parity evidence for the desktop pairing contract and regenerated shared design-token outputs.
 - Fixed Rust formatting in the desktop auto-pairing regression tests.
+- Made the Windows installer smoke test wait for GUI installers and check their process exit codes reliably.
+- Removed expected production-parity error annotations from successful CI runs and disabled unsupported CodeQL overlay mode for the manually built Kotlin database.
 
 ### Alpha scope
 
