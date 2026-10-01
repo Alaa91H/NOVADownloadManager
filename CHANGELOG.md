@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.51-alpha] - 2026-10-01
+
 ### Fixed
 
 - Kept atomic queue-slot accounting compatible with the declared Rust 1.85 minimum while avoiding deprecated atomic APIs.
