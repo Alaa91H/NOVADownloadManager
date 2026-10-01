@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Updated atomic queue-slot accounting to the current Rust atomic update API.
+- Built and verified the native libcurl dependency in Rust compatibility CI instead of exercising an unconfigured system fallback.
+- Replaced deprecated Android SDK Manager invocations in CI with the current Android SDK command-line interface.
+
 ## [2.4.50-alpha] - 2026-10-01
 
 ### Fixed

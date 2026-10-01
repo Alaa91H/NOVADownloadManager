@@ -324,6 +324,29 @@ jobs:
             nasm \
             pkg-config
 
+      - name: Build and activate verified native libcurl
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm run native-curl:build
+          source bin/native-curl.env
+          pnpm run native-curl:verify
+          for name in \
+            NOVA_LIBCURL_PREFIX \
+            NOVA_EXPECT_LIBCURL_VERSION \
+            NOVA_EXPECT_LIBCURL_TAG \
+            NOVA_EXPECT_LIBCURL_SHA256 \
+            NOVA_EXPECT_LIBCURL_PROTOCOLS \
+            NOVA_EXPECT_LIBCURL_FEATURES \
+            NOVA_LIBCURL_FEATURE_PROFILE \
+            NOVA_LIBCURL_LINK_MODE \
+            PKG_CONFIG_PATH \
+            PKG_CONFIG_ALL_STATIC \
+            PKG_CONFIG_ALLOW_CROSS; do
+            printf '%s=%s\n' "$name" "${!name}" >> "$GITHUB_ENV"
+          done
+          printf '%s\n' "$NOVA_LIBCURL_PREFIX/bin" >> "$GITHUB_PATH"
+
       - name: Cargo check
         run: cargo check --manifest-path src-tauri/Cargo.toml
 

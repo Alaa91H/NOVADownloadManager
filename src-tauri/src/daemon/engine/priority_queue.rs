@@ -130,7 +130,7 @@ impl PriorityBandwidthQueue {
         // Do not let repeated or racing lifecycle notifications wrap the
         // active count to zero; that would make the queue admit unlimited
         // additional work while downloads are still in flight.
-        let _ = self.active_downloads.fetch_update(
+        let _ = self.active_downloads.try_update(
             AtomicOrder::AcqRel,
             AtomicOrder::Relaxed,
             |current| Some(current.saturating_add(1)),
@@ -143,9 +143,9 @@ impl PriorityBandwidthQueue {
     /// old worker becomes stale and cannot run its normal completion cleanup,
     /// while the new generation must keep the same priority and allocation.
     pub fn release_active_slot(&self) {
-        // Use fetch_update for atomic decrement to prevent u32 underflow from
+        // Use try_update for atomic decrement to prevent u32 underflow from
         // concurrent lifecycle notifications (TOCTOU race).
-        let _ = self.active_downloads.fetch_update(
+        let _ = self.active_downloads.try_update(
             AtomicOrder::AcqRel,
             AtomicOrder::Relaxed,
             |current| current.checked_sub(1),
