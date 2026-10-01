@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Kept atomic queue-slot accounting compatible with the declared Rust 1.85 minimum while avoiding deprecated atomic APIs.
 - Built and verified the native libcurl dependency in Rust compatibility CI instead of exercising an unconfigured system fallback.
 - Replaced deprecated Android SDK Manager invocations in CI with the current Android SDK command-line interface.
+- Updated the Android external-link icon to its RTL-aware AutoMirrored Compose variant.
 
 ## [2.4.50-alpha] - 2026-10-01
 
