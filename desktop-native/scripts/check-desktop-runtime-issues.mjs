@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 
 const read = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 const bootstrap = read("src/platform/BackendBootstrap.cpp");
+const bootstrapHeader = read("src/platform/BackendBootstrap.h");
 const main = read("src/main.cpp");
 const mainQml = read("qml/Main.qml");
 const settings = read("qml/pages/SettingsPage.qml");
@@ -55,6 +56,24 @@ requireMatch(
     && /x-nova-native-desktop/.test(bootstrap)
     && !/pairingSecret\.isEmpty\(\)/.test(bootstrap),
   "Desktop auto-pair must use the same accepted marker on both sides.",
+);
+requireMatch(
+  /appDir\.filePath\(QStringLiteral\("\.\.\/"\) \+ fileName\)/.test(bootstrap)
+    && /setWorkingDirectory\(info\.absolutePath\(\)\)/.test(bootstrap)
+    && /com\.nova\.downloadmanager\/nova-daemon\.port/.test(bootstrap)
+    && /m_portsToProbe = candidatePorts\(\)/.test(bootstrap)
+    && /m_backendOutput\.append\(m_backendProcess\.readAllStandardError\(\)\)/.test(bootstrap),
+  "The desktop must launch the packaged backend from its bundle directory and probe the daemon port persisted by the runtime before its fallback range.",
+);
+requireMatch(
+  /reportBootstrapFailure/.test(bootstrapHeader)
+    && /backend-bootstrap\.log/.test(bootstrap),
+  "Backend startup failures must be recorded for support diagnostics.",
+);
+requireMatch(
+  /Accessible\.name: window\.t\("nav\.settings"\)/.test(mainQml)
+    && /onClicked: \{\s*window\.customizationOpen = false\s*window\.currentPage = "settings"/.test(mainQml),
+  "The top-bar gear must navigate to application settings instead of opening appearance customization.",
 );
 
 if (failures.length > 0) {

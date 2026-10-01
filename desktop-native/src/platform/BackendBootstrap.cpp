@@ -2,6 +2,7 @@
 
 #include <QCoreApplication>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -9,6 +10,8 @@
 #include <QNetworkRequest>
 #include <QProcessEnvironment>
 #include <QScopeGuard>
+#include <QStandardPaths>
+#include <QSet>
 #include <QStringList>
 
 #if defined(Q_OS_WIN)
@@ -30,6 +33,13 @@ BackendBootstrap::BackendBootstrap(QObject *parent)
     : QObject(parent) {
     m_retryTimer.setSingleShot(true);
     connect(&m_retryTimer, &QTimer::timeout, this, &BackendBootstrap::beginProbeRound);
+    connect(&m_backendProcess, &QProcess::readyReadStandardError, this, [this]() {
+        m_backendOutput.append(m_backendProcess.readAllStandardError());
+        constexpr qsizetype kMaxBackendOutputBytes = 64 * 1024;
+        if (m_backendOutput.size() > kMaxBackendOutputBytes) {
+            m_backendOutput.remove(0, m_backendOutput.size() - kMaxBackendOutputBytes);
+        }
+    });
 
     connect(
         &m_backendProcess,
@@ -39,7 +49,11 @@ BackendBootstrap::BackendBootstrap(QObject *parent)
             if (m_shuttingDown || error == QProcess::Crashed) {
                 return;
             }
-            setStatus(QStringLiteral("NOVA backend could not be started."));
+            reportBootstrapFailure(
+                QStringLiteral("NOVA backend could not be started (%1): %2")
+                    .arg(static_cast<int>(error))
+                    .arg(m_backendProcess.errorString())
+            );
         }
     );
     connect(
@@ -81,7 +95,8 @@ void BackendBootstrap::start() {
     }
 
     m_round = 0;
-    m_nextPort = kFirstPort;
+    m_portsToProbe = candidatePorts();
+    m_nextPort = 0;
     setStatus(QStringLiteral("Discovering NOVA engine…"));
     beginProbeRound();
 }
@@ -97,7 +112,8 @@ void BackendBootstrap::recover() {
     }
 
     m_round = 0;
-    m_nextPort = kFirstPort;
+    m_portsToProbe = candidatePorts();
+    m_nextPort = 0;
     setStatus(QStringLiteral("Recovering NOVA engine…"));
 
     if (!m_retryTimer.isActive()) {
@@ -110,7 +126,7 @@ void BackendBootstrap::beginProbeRound() {
         return;
     }
 
-    m_nextPort = kFirstPort;
+    m_nextPort = 0;
     ++m_round;
     probeNextPort();
 }
@@ -120,25 +136,20 @@ void BackendBootstrap::probeNextPort() {
         return;
     }
 
-    if (m_nextPort > kLastPort) {
+    if (m_nextPort >= m_portsToProbe.size()) {
         if (!m_startedBackend) {
             if (!launchBundledBackend()) {
-                const QString message = QStringLiteral(
-                    "Bundled NOVA backend is missing or could not be started."
+                reportBootstrapFailure(
+                    QStringLiteral("Bundled NOVA backend is missing or could not be started: %1")
+                        .arg(bundledBackendPath())
                 );
-                setStatus(message);
-                emit bootstrapFailed(message);
                 return;
             }
             setStatus(QStringLiteral("Starting NOVA engine…"));
         }
 
         if (m_round >= kMaxProbeRounds) {
-            const QString message = QStringLiteral(
-                "NOVA engine did not become ready in time."
-            );
-            setStatus(message);
-            emit bootstrapFailed(message);
+            reportBootstrapFailure(QStringLiteral("NOVA engine did not become ready in time."));
             return;
         }
 
@@ -146,7 +157,7 @@ void BackendBootstrap::probeNextPort() {
         return;
     }
 
-    const int port = m_nextPort++;
+    const int port = m_portsToProbe.at(m_nextPort++).toInt();
     const QUrl baseUrl(QStringLiteral("http://127.0.0.1:%1").arg(port));
     QNetworkRequest request(baseUrl.resolved(QUrl(QStringLiteral("/v1/pair/auto"))));
     request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
@@ -181,16 +192,59 @@ void BackendBootstrap::handleProbeReply(QNetworkReply *reply, const QUrl &baseUr
         }
     }
 
+    if (m_nextPort >= m_portsToProbe.size() && m_startedBackend && m_round < kMaxProbeRounds) {
+        m_retryTimer.start(kRetryDelayMs);
+        return;
+    }
     probeNextPort();
 }
 
 QString BackendBootstrap::bundledBackendPath() const {
     const QDir appDir(QCoreApplication::applicationDirPath());
 #if defined(Q_OS_WIN)
-    return appDir.filePath(QStringLiteral("nova-native-backend.exe"));
+    const QString fileName = QStringLiteral("nova-native-backend.exe");
 #else
-    return appDir.filePath(QStringLiteral("nova-native-backend"));
+    const QString fileName = QStringLiteral("nova-native-backend");
 #endif
+    const QStringList candidates{
+        appDir.filePath(fileName),
+        appDir.filePath(QStringLiteral("../") + fileName),
+        appDir.filePath(QStringLiteral("../bin/") + fileName)
+    };
+    for (const QString &candidate : candidates) {
+        const QFileInfo info(candidate);
+        if (info.exists() && info.isFile()) {
+            return info.absoluteFilePath();
+        }
+    }
+    return candidates.constFirst();
+}
+
+QStringList BackendBootstrap::candidatePorts() const {
+    QStringList ports;
+    QSet<int> seen;
+    const QString appData = qEnvironmentVariable("APPDATA").trimmed();
+    if (!appData.isEmpty()) {
+        const QString portFile = QDir(appData).filePath(
+            QStringLiteral("com.nova.downloadmanager/nova-daemon.port")
+        );
+        QFile file(portFile);
+        if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            bool ok = false;
+            const int port = QString::fromUtf8(file.readLine()).trimmed().toInt(&ok);
+            if (ok && port >= 1024 && port <= 65535) {
+                ports.append(QString::number(port));
+                seen.insert(port);
+            }
+        }
+    }
+
+    for (int port = kFirstPort; port <= kLastPort; ++port) {
+        if (!seen.contains(port)) {
+            ports.append(QString::number(port));
+        }
+    }
+    return ports;
 }
 
 bool BackendBootstrap::launchBundledBackend() {
@@ -209,8 +263,9 @@ bool BackendBootstrap::launchBundledBackend() {
     m_backendProcess.setProcessEnvironment(environment);
     m_backendProcess.setProgram(info.absoluteFilePath());
     m_backendProcess.setArguments(QStringList{});
+    m_backendProcess.setWorkingDirectory(info.absolutePath());
     m_backendProcess.setStandardOutputFile(QProcess::nullDevice());
-    m_backendProcess.setStandardErrorFile(QProcess::nullDevice());
+    m_backendOutput.clear();
 #if defined(Q_OS_WIN)
     m_backendProcess.setCreateProcessArgumentsModifier(
         [](QProcess::CreateProcessArguments *arguments) {
@@ -226,4 +281,20 @@ bool BackendBootstrap::launchBundledBackend() {
 
     m_startedBackend = true;
     return true;
+}
+
+void BackendBootstrap::reportBootstrapFailure(const QString &message) {
+    setStatus(message);
+    const QString logPath = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation)
+        + QStringLiteral("/backend-bootstrap.log");
+    const QFileInfo logInfo(logPath);
+    QDir().mkpath(logInfo.absolutePath());
+    QFile logFile(logPath);
+    if (logFile.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
+        logFile.write(message.toUtf8());
+        logFile.write("\n");
+        logFile.write(m_backendOutput);
+        logFile.write("\n");
+    }
+    emit bootstrapFailed(message);
 }

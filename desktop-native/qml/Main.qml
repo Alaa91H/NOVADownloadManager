@@ -326,8 +326,12 @@ ApplicationWindow {
                         text: "⚙"
                         Layout.preferredWidth: 38
                         Layout.preferredHeight: 38
-                        Accessible.name: window.t("custom.open")
-                        onClicked: window.customizationOpen = !window.customizationOpen
+                        Accessible.name: window.t("nav.settings")
+                        ToolTip.text: window.t("nav.settings")
+                        onClicked: {
+                            window.customizationOpen = false
+                            window.currentPage = "settings"
+                        }
                     }
 
                     Rectangle {

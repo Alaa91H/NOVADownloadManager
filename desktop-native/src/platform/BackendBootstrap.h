@@ -35,14 +35,18 @@ private:
     void handleProbeReply(QNetworkReply *reply, const QUrl &baseUrl);
     bool launchBundledBackend();
     QString bundledBackendPath() const;
+    QStringList candidatePorts() const;
+    void reportBootstrapFailure(const QString &message);
 
     QNetworkAccessManager m_network;
     QProcess m_backendProcess;
     QTimer m_retryTimer;
     int m_nextPort{3199};
+    QStringList m_portsToProbe;
     int m_round{0};
     bool m_startedBackend{false};
     bool m_ready{false};
     bool m_shuttingDown{false};
     QString m_statusText{QStringLiteral("Discovering NOVA engine…")};
+    QByteArray m_backendOutput;
 };
