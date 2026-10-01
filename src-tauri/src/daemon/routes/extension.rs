@@ -148,7 +148,10 @@ mod auto_pair_tests {
             crate::daemon::NATIVE_DESKTOP_PAIRING_HEADER,
             HeaderValue::from_static(crate::daemon::NATIVE_DESKTOP_PAIRING_VALUE),
         );
-        headers.insert(ORIGIN, HeaderValue::from_static("https://untrusted.example"));
+        headers.insert(
+            ORIGIN,
+            HeaderValue::from_static("https://untrusted.example"),
+        );
         assert!(!trusted_auto_pair_caller(&headers));
     }
 
