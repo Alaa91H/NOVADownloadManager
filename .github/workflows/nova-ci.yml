@@ -478,7 +478,16 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Setup pnpm for native checks
+      - name: Setup pnpm for native checks (Windows)
+        if: runner.os == 'Windows'
+        uses: pnpm/setup@v3
+        with:
+          version: 11.6.0
+          dest: ${{ runner.temp }}/setup-pnpm
+          install: false
+
+      - name: Setup pnpm for native checks (Unix)
+        if: runner.os != 'Windows'
         uses: pnpm/action-setup@v6
 
       - name: Setup Node.js 24 for native checks
@@ -631,12 +640,31 @@ jobs:
             for archs in "$qt_archs" "$backend_archs" "$host_archs"; do printf '%s' "$archs" | grep -qw x86_64; done
           fi
 
+      - name: Configure Visual Studio runtime discovery for Qt
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vswhereCandidates = @()
+          if (${env:ProgramFiles(x86)}) { $vswhereCandidates += Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe' }
+          if ($env:ProgramFiles) { $vswhereCandidates += Join-Path $env:ProgramFiles 'Microsoft Visual Studio\Installer\vswhere.exe' }
+          $vswhere = $vswhereCandidates | Where-Object { Test-Path $_ -PathType Leaf } | Select-Object -First 1
+          if (!$vswhere) { throw 'Visual Studio locator (vswhere.exe) was not found in either Program Files directory.' }
+          $vsInstall = (& $vswhere -latest -products '*' -property installationPath | Select-Object -First 1).Trim()
+          if (!$vsInstall) { throw 'Visual Studio installation could not be located for Qt deployment.' }
+          $vcInstall = Join-Path $vsInstall 'VC'
+          if (!(Test-Path $vcInstall -PathType Container)) { throw "Visual Studio C++ tools directory was not found: $vcInstall" }
+          $env:VCINSTALLDIR = $vcInstall + [System.IO.Path]::DirectorySeparatorChar
+          "VCINSTALLDIR=$env:VCINSTALLDIR" >> $env:GITHUB_ENV
+
       - name: Deploy Qt test runtime (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          windeployqt --release --no-translations "build/native/Release/nova-native-tests.exe"
-          windeployqt --release --no-translations "build/native/Release/nova-native-display-tests.exe"
+          # The Windows runner does not ship an optional system DXC compiler;
+          # skip probing for it because NOVA does not depend on that compiler.
+          windeployqt --release --no-translations --no-system-dxc-compiler "build/native/Release/nova-native-tests.exe"
+          windeployqt --release --no-translations --no-system-dxc-compiler "build/native/Release/nova-native-display-tests.exe"
 
       - name: Native stress and recovery tests
         run: ctest --test-dir build/native -C Release --output-on-failure
@@ -697,7 +725,7 @@ jobs:
           cp src-tauri/target/release/nova-native-backend "$macos_bin/"
           cp src-tauri/target/release/nova-native-host "$macos_bin/"
           chmod 0755 "$macos_bin/nova-native-backend" "$macos_bin/nova-native-host"
-          macdeployqt "$app" -qmldir=desktop-native/qml
+          macdeployqt "$app" -qmldir=desktop-native/qml -appstore-compliant
           test -x "$macos_bin/nova-native-backend"
           test -x "$macos_bin/nova-native-host"
 
@@ -707,7 +735,9 @@ jobs:
         run: |
           $bundle = "preview/NOVA-Native-Windows"
           $exe = Join-Path $bundle "bin/nova-native.exe"
-          windeployqt --release --qmldir desktop-native/qml --dir (Join-Path $bundle "bin") $exe
+          # Match Qt deployment to the runner's installed C++ environment while
+          # explicitly omitting the optional system DXC compiler.
+          windeployqt --release --no-system-dxc-compiler --qmldir desktop-native/qml --dir (Join-Path $bundle "bin") $exe
           Copy-Item build/native-parity-report.md (Join-Path $bundle "PARITY_REPORT.md")
           @"
           NOVA Native Desktop
@@ -1174,10 +1204,18 @@ jobs:
           persist-credentials: false
 
       - name: Download matching native Windows runtime bundle
-        uses: actions/download-artifact@v8
-        with:
-          name: NOVA-Native-Preview-Windows-${{ matrix.arch }}-${{ github.sha }}
-          path: preview/NOVA-Native-Windows-${{ matrix.arch }}
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          ARCH: ${{ matrix.arch }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          $artifact = "NOVA-Native-Preview-Windows-$env:ARCH-$env:COMMIT_SHA"
+          $destination = "preview/NOVA-Native-Windows-$env:ARCH"
+          gh run download $env:RUN_ID --repo $env:REPOSITORY --name $artifact --dir $destination
+          if ($LASTEXITCODE -ne 0) { throw "Could not download matching native runtime artifact '$artifact'." }
 
       - name: Install pinned NSIS compiler
         shell: pwsh
@@ -1277,11 +1315,20 @@ jobs:
 
     steps:
       - name: Download x64 and ARM64 setup artifacts
-        uses: actions/download-artifact@v8
-        with:
-          pattern: NOVA-Windows-Setup-${{ github.ref_name }}-*
-          path: release-assets
-          merge-multiple: true
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RELEASE_RUN_ID: ${{ github.run_id }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path release-assets | Out-Null
+          foreach ($arch in @('x64', 'arm64')) {
+            $artifact = "NOVA-Windows-Setup-$env:RELEASE_TAG-$arch"
+            gh run download $env:RELEASE_RUN_ID --repo $env:REPOSITORY --name $artifact --dir release-assets
+            if ($LASTEXITCODE -ne 0) { throw "Could not download Windows setup artifact '$artifact'." }
+          }
 
       - name: Attach installers and checksums to the GitHub draft release
         shell: pwsh

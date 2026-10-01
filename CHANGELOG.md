@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Built and verified the native libcurl dependency in Rust compatibility CI instead of exercising an unconfigured system fallback.
 - Replaced deprecated Android SDK Manager invocations in CI with the current Android SDK command-line interface.
 - Updated the Android external-link icon to its RTL-aware AutoMirrored Compose variant.
+- Removed optional Qt deployment warnings by resolving the Visual Studio runtime path and excluding unused App Store-incompatible plugins.
+- Replaced Windows CI package-manager and artifact-download steps that emitted deprecated Node.js subprocess and Buffer warnings.
 
 ## [2.4.50-alpha] - 2026-10-01
 

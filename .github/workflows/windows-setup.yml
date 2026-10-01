@@ -68,13 +68,18 @@ jobs:
           persist-credentials: false
 
       - name: Download matching native Windows runtime bundle
-        uses: actions/download-artifact@v8
-        with:
-          repository: ${{ github.repository }}
-          run-id: ${{ inputs.runtime_run_id }}
-          github-token: ${{ github.token }}
-          name: NOVA-Native-Preview-Windows-${{ matrix.arch }}-${{ inputs.runtime_sha }}
-          path: preview/NOVA-Native-Windows-${{ matrix.arch }}
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RUNTIME_RUN_ID: ${{ inputs.runtime_run_id }}
+          RUNTIME_SHA: ${{ inputs.runtime_sha }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          $artifact = "NOVA-Native-Preview-Windows-$env:ARCH-$env:RUNTIME_SHA"
+          $destination = "preview/NOVA-Native-Windows-$env:ARCH"
+          gh run download $env:RUNTIME_RUN_ID --repo $env:REPOSITORY --name $artifact --dir $destination
+          if ($LASTEXITCODE -ne 0) { throw "Could not download matching native runtime artifact '$artifact'." }
 
       - name: Validate runtime bundle contents
         shell: pwsh
