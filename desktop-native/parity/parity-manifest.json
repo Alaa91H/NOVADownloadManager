@@ -780,8 +780,8 @@
           "file": "desktop-native/src/platform/BackendBootstrap.cpp",
           "allOf": [
             "x-nova-native-desktop",
-            "x-nova-pairing-secret",
-            "nova-daemon.pairing.json",
+            "/v1/pair/auto",
+            "Accept",
             "pairToken"
           ]
         },
