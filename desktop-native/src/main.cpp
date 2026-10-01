@@ -2,6 +2,7 @@
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QQuickStyle>
 #include <QTimer>
 #include <QUrl>
 #include <QWindow>
@@ -22,6 +23,7 @@ int main(int argc, char *argv[]) {
         Qt::HighDpiScaleFactorRoundingPolicy::PassThrough
     );
 
+    QQuickStyle::setStyle(QStringLiteral("Basic"));
     QApplication app(argc, argv);
     const bool captureReviewLaunch = app.arguments().contains(QStringLiteral("--capture-review"));
     QCoreApplication::setOrganizationName(QStringLiteral("NOVA"));

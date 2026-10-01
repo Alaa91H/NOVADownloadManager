@@ -39,6 +39,9 @@ pub(crate) const NOVA_CHROMIUM_EXTENSION_ORIGIN: &str =
 /// Browser callers cannot use it because daemon CORS does not allow this header.
 pub(crate) const NATIVE_HOST_PAIRING_HEADER: &str = "x-nova-native-host";
 pub(crate) const NATIVE_HOST_PAIRING_VALUE: &str = "1";
+/// Header the packaged Qt desktop client adds to its loopback auto-pair request.
+pub(crate) const NATIVE_DESKTOP_PAIRING_HEADER: &str = "x-nova-native-desktop";
+pub(crate) const NATIVE_DESKTOP_PAIRING_VALUE: &str = "1";
 
 use axum::Router;
 use reqwest::Client as HttpClient;

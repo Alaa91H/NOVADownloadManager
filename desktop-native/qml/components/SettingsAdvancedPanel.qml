@@ -6,6 +6,8 @@ import Nova.Native
 ScrollView {
     id: root
 
+    contentWidth: availableWidth
+
     required property var api
     required property var settings
     required property var desktop

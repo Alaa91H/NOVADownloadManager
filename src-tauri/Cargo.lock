@@ -2564,6 +2564,7 @@ dependencies = [
  "uuid",
  "windows-sys 0.61.2",
  "xz2",
+ "zeroize",
  "zip",
 ]
 

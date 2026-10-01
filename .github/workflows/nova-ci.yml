@@ -501,6 +501,9 @@ jobs:
       - name: Check accessibility and typography
         run: node desktop-native/scripts/check-native-accessibility.mjs
 
+      - name: Check native desktop runtime regressions
+        run: node desktop-native/scripts/check-desktop-runtime-issues.mjs
+
       - name: Check WCAG contrast
         run: node desktop-native/scripts/check-native-contrast.mjs
 

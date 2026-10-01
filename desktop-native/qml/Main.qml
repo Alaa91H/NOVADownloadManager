@@ -19,6 +19,8 @@ ApplicationWindow {
     property string currentPage: "downloads"
     property string languageToken: i18n.language
     property bool customizationOpen: false
+    property bool maximizedToWorkArea: false
+    property rect restoreGeometry: Qt.rect(0, 0, 0, 0)
 
     LayoutMirroring.enabled: i18n.rtl
     LayoutMirroring.childrenInherit: true
@@ -66,10 +68,27 @@ ApplicationWindow {
     }
 
     function toggleMaximized() {
-        if (window.visibility === Window.Maximized)
-            window.showNormal()
-        else
-            window.showMaximized()
+        if (window.maximizedToWorkArea) {
+            const previous = window.restoreGeometry
+            window.x = previous.x
+            window.y = previous.y
+            window.width = previous.width
+            window.height = previous.height
+            window.maximizedToWorkArea = false
+            return
+        }
+
+        const metrics = desktopIntegration.displayMetrics()
+        const area = metrics.availableGeometry || ({})
+        if (area.width <= 0 || area.height <= 0)
+            return
+
+        window.restoreGeometry = Qt.rect(window.x, window.y, window.width, window.height)
+        window.x = area.x
+        window.y = area.y
+        window.width = area.width
+        window.height = area.height
+        window.maximizedToWorkArea = true
     }
 
     Component.onCompleted: {
@@ -209,9 +228,9 @@ ApplicationWindow {
     Rectangle {
         id: shell
         anchors.fill: parent
-        radius: window.visibility === Window.Maximized ? 0 : Theme.radiusLarge
+        radius: window.maximizedToWorkArea ? 0 : Theme.radiusLarge
         color: Theme.window
-        border.width: window.visibility === Window.Maximized ? 0 : 1
+        border.width: window.maximizedToWorkArea ? 0 : 1
         border.color: Theme.borderStrong
         clip: true
 
@@ -326,7 +345,7 @@ ApplicationWindow {
                     }
 
                     ToolButton {
-                        text: window.visibility === Window.Maximized ? "❐" : "□"
+                        text: window.maximizedToWorkArea ? "❐" : "□"
                         Layout.preferredWidth: 38
                         Layout.preferredHeight: 38
                         Accessible.name: window.t("common.maximize")

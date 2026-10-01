@@ -332,7 +332,7 @@ Item {
 
                 ColumnLayout {
                     Layout.fillWidth: true
-                    visible: root.details.requiresReauth
+                    visible: Boolean(root.details.requiresReauth)
                     spacing: 6
                     Text {
                         Layout.fillWidth: true

@@ -57,14 +57,18 @@ fn trusted_auto_pair_caller(headers: &HeaderMap) -> bool {
     // native host uses reqwest and has no Origin at all, so require that shape
     // in addition to its marker header; an unrelated extension cannot turn
     // itself into the native host merely by adding an X- header.
-    let native_host = origin.is_none()
-        && headers
-            .get(crate::daemon::NATIVE_HOST_PAIRING_HEADER)
-            .and_then(|value| value.to_str().ok())
-            == Some(crate::daemon::NATIVE_HOST_PAIRING_VALUE);
+    let native_host = headers
+        .get(crate::daemon::NATIVE_HOST_PAIRING_HEADER)
+        .and_then(|value| value.to_str().ok())
+        == Some(crate::daemon::NATIVE_HOST_PAIRING_VALUE);
+    let native_desktop = headers
+        .get(crate::daemon::NATIVE_DESKTOP_PAIRING_HEADER)
+        .and_then(|value| value.to_str().ok())
+        == Some(crate::daemon::NATIVE_DESKTOP_PAIRING_VALUE);
+    let native_client = origin.is_none() && (native_host || native_desktop);
     let chromium_extension = origin == Some(crate::daemon::NOVA_CHROMIUM_EXTENSION_ORIGIN);
 
-    native_host || chromium_extension
+    native_client || chromium_extension
 }
 
 pub async fn handle_v1_pair_auto(
@@ -87,14 +91,14 @@ pub async fn handle_v1_pair_auto(
         // Chromium/Edge use NOVA's pinned extension origin.
         return Json(serde_json::json!({
             "ok": false,
-            "error": "pair-auto requires the NOVA browser extension or native host"
+            "error": "pair-auto requires the NOVA browser extension or native client"
         }));
     }
     Json(serde_json::json!({
         "ok": true,
         "pairToken": state.api_token,
         "autoApproved": true,
-        "method": "origin-or-native-host-verified",
+        "method": "origin-or-native-client-verified",
         "protocolVersion": 4,
         "minimumSupportedProtocolVersion": 4,
         "ttlSeconds": 60 * 60 * 24 * 30,
@@ -125,6 +129,27 @@ mod auto_pair_tests {
             HeaderValue::from_static(crate::daemon::NATIVE_HOST_PAIRING_VALUE),
         );
         assert!(trusted_auto_pair_caller(&headers));
+    }
+
+    #[test]
+    fn accepts_the_native_desktop_marker_without_an_origin() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            crate::daemon::NATIVE_DESKTOP_PAIRING_HEADER,
+            HeaderValue::from_static(crate::daemon::NATIVE_DESKTOP_PAIRING_VALUE),
+        );
+        assert!(trusted_auto_pair_caller(&headers));
+    }
+
+    #[test]
+    fn rejects_the_native_desktop_marker_with_an_untrusted_origin() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            crate::daemon::NATIVE_DESKTOP_PAIRING_HEADER,
+            HeaderValue::from_static(crate::daemon::NATIVE_DESKTOP_PAIRING_VALUE),
+        );
+        headers.insert(ORIGIN, HeaderValue::from_static("https://untrusted.example"));
+        assert!(!trusted_auto_pair_caller(&headers));
     }
 
     #[test]

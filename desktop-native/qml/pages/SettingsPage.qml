@@ -163,7 +163,10 @@ Item {
             currentIndex: tabs.currentIndex
 
             ScrollView {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
                 clip: true
+                contentWidth: availableWidth
 
                 ColumnLayout {
                     width: parent.availableWidth
@@ -192,7 +195,7 @@ Item {
 
                             GridLayout {
                                 Layout.fillWidth: true
-                                columns: 2
+                                columns: root.width < 760 ? 1 : 2
                                 columnSpacing: 12
                                 rowSpacing: 10
 
@@ -247,25 +250,61 @@ Item {
                                 }
                             }
 
-                            RowLayout {
+                            GridLayout {
                                 Layout.fillWidth: true
-                                spacing: 18
+                                columns: appearanceColumn.width < 760 ? 1 : 2
+                                columnSpacing: 18
+                                rowSpacing: 10
 
                                 Switch {
+                                    id: highContrastSwitch
+                                    Layout.fillWidth: true
                                     text: root.t("settings.highContrast")
                                     checked: settings.highContrast
                                     Accessible.name: text
                                     onToggled: settings.highContrast = checked
+
+                                    contentItem: Text {
+                                        text: highContrastSwitch.text
+                                        font: highContrastSwitch.font
+                                        color: highContrastSwitch.enabled
+                                            ? Theme.textPrimary : Theme.textMuted
+                                        anchors.fill: parent
+                                        anchors.leftMargin: highContrastSwitch.mirrored
+                                            ? 0 : highContrastSwitch.indicator.width
+                                                + highContrastSwitch.spacing
+                                        anchors.rightMargin: highContrastSwitch.mirrored
+                                            ? highContrastSwitch.indicator.width
+                                                + highContrastSwitch.spacing : 0
+                                        verticalAlignment: Text.AlignVCenter
+                                        wrapMode: Text.WordWrap
+                                    }
                                 }
 
                                 Switch {
+                                    id: reducedMotionSwitch
+                                    Layout.fillWidth: true
                                     text: root.t("settings.reducedMotion")
                                     checked: settings.reducedMotion
                                     Accessible.name: text
                                     onToggled: settings.reducedMotion = checked
-                                }
 
-                                Item { Layout.fillWidth: true }
+                                    contentItem: Text {
+                                        text: reducedMotionSwitch.text
+                                        font: reducedMotionSwitch.font
+                                        color: reducedMotionSwitch.enabled
+                                            ? Theme.textPrimary : Theme.textMuted
+                                        anchors.fill: parent
+                                        anchors.leftMargin: reducedMotionSwitch.mirrored
+                                            ? 0 : reducedMotionSwitch.indicator.width
+                                                + reducedMotionSwitch.spacing
+                                        anchors.rightMargin: reducedMotionSwitch.mirrored
+                                            ? reducedMotionSwitch.indicator.width
+                                                + reducedMotionSwitch.spacing : 0
+                                        verticalAlignment: Text.AlignVCenter
+                                        wrapMode: Text.WordWrap
+                                    }
+                                }
                             }
 
                             RowLayout {
@@ -613,13 +652,18 @@ Item {
             }
 
             SettingsAdvancedPanel {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
                 api: root.api
                 settings: root.settings
                 desktop: root.desktop
             }
 
             ScrollView {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
                 clip: true
+                contentWidth: availableWidth
 
                 ColumnLayout {
                     width: parent.availableWidth
@@ -902,6 +946,8 @@ Item {
             }
 
             Item {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
                 ColumnLayout {
                     anchors.fill: parent
                     spacing: 10

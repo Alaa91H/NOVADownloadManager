@@ -2,15 +2,19 @@
 
 #include <QCoreApplication>
 #include <QDir>
-#include <QFile>
 #include <QFileInfo>
-#include <QJsonDocument>
-#include <QJsonObject>
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QProcessEnvironment>
 #include <QScopeGuard>
 #include <QStringList>
+
+#if defined(Q_OS_WIN)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 
 namespace {
 constexpr int kFirstPort = 3199;
@@ -18,41 +22,6 @@ constexpr int kLastPort = 3229;
 constexpr int kMaxProbeRounds = 40;
 constexpr int kRetryDelayMs = 150;
 constexpr int kProbeTimeoutMs = 750;
-
-QString nativeDataDirectory() {
-    const QString overrideDirectory = qEnvironmentVariable("NOVA_NATIVE_DATA_DIR").trimmed();
-    if (!overrideDirectory.isEmpty()) {
-        return overrideDirectory;
-    }
-
-#if defined(Q_OS_WIN)
-    const QString appData = qEnvironmentVariable("APPDATA").trimmed();
-    if (!appData.isEmpty()) {
-        return QDir(appData).filePath(QStringLiteral("com.nova.downloadmanager"));
-    }
-#elif defined(Q_OS_MACOS)
-    const QString home = QDir::homePath();
-    if (!home.isEmpty()) {
-        return QDir(home).filePath(
-            QStringLiteral("Library/Application Support/com.nova.downloadmanager")
-        );
-    }
-#else
-    const QString xdgDataHome = qEnvironmentVariable("XDG_DATA_HOME").trimmed();
-    if (!xdgDataHome.isEmpty()) {
-        return QDir(xdgDataHome).filePath(QStringLiteral("com.nova.downloadmanager"));
-    }
-
-    const QString home = QDir::homePath();
-    if (!home.isEmpty()) {
-        return QDir(home).filePath(
-            QStringLiteral(".local/share/com.nova.downloadmanager")
-        );
-    }
-#endif
-
-    return {};
-}
 }
 
 BackendBootstrap::BackendBootstrap(QObject *parent)
@@ -176,18 +145,11 @@ void BackendBootstrap::probeNextPort() {
     }
 
     const int port = m_nextPort++;
-    const QString pairingSecret = pairingSecretForPort(port);
-    if (pairingSecret.isEmpty()) {
-        probeNextPort();
-        return;
-    }
-
     const QUrl baseUrl(QStringLiteral("http://127.0.0.1:%1").arg(port));
     QNetworkRequest request(baseUrl.resolved(QUrl(QStringLiteral("/v1/pair/auto"))));
     request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
     request.setRawHeader("Accept", "application/json");
     request.setRawHeader("x-nova-native-desktop", "1");
-    request.setRawHeader("x-nova-pairing-secret", pairingSecret.toUtf8());
     request.setTransferTimeout(kProbeTimeoutMs);
 
     auto *reply = m_network.post(request, QByteArrayLiteral("{}"));
@@ -229,31 +191,6 @@ QString BackendBootstrap::bundledBackendPath() const {
 #endif
 }
 
-QString BackendBootstrap::pairingSecretForPort(int port) const {
-    const QString dataDirectory = nativeDataDirectory();
-    if (dataDirectory.isEmpty()) {
-        return {};
-    }
-
-    QFile file(QDir(dataDirectory).filePath(QStringLiteral("nova-daemon.pairing.json")));
-    if (!file.open(QIODevice::ReadOnly)) {
-        return {};
-    }
-
-    const QJsonDocument document = QJsonDocument::fromJson(file.readAll());
-    if (!document.isObject()) {
-        return {};
-    }
-
-    const QJsonObject object = document.object();
-    if (object.value(QStringLiteral("port")).toInt(-1) != port) {
-        return {};
-    }
-
-    const QString secret = object.value(QStringLiteral("secret")).toString().trimmed();
-    return secret.size() >= 24 ? secret : QString();
-}
-
 bool BackendBootstrap::launchBundledBackend() {
     const QString backendPath = bundledBackendPath();
     const QFileInfo info(backendPath);
@@ -270,7 +207,15 @@ bool BackendBootstrap::launchBundledBackend() {
     m_backendProcess.setProcessEnvironment(environment);
     m_backendProcess.setProgram(info.absoluteFilePath());
     m_backendProcess.setArguments(QStringList{});
-    m_backendProcess.setProcessChannelMode(QProcess::ForwardedErrorChannel);
+    m_backendProcess.setStandardOutputFile(QProcess::nullDevice());
+    m_backendProcess.setStandardErrorFile(QProcess::nullDevice());
+#if defined(Q_OS_WIN)
+    m_backendProcess.setCreateProcessArgumentsModifier(
+        [](QProcess::CreateProcessArguments *arguments) {
+            arguments->flags |= CREATE_NO_WINDOW;
+        }
+    );
+#endif
     m_backendProcess.start();
 
     if (!m_backendProcess.waitForStarted(1500)) {
