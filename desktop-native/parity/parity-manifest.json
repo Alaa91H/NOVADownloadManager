@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "stage": "7-native-primary",
-  "nativePreviewVersion": "2.4.51-alpha",
+  "nativePreviewVersion": "2.4.52-alpha",
   "statuses": [
     "covered",
     "partial",
