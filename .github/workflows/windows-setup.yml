@@ -7,12 +7,10 @@ on:
         description: Successful NOVA CI run containing Windows preview artifacts
         required: true
         type: string
-        default: '36760122632'
       runtime_sha:
         description: Full commit SHA that produced those Windows preview artifacts
         required: true
         type: string
-        default: '9912ac951d6d4c028fa1a7e68bc509e3cbf58eaa'
       source_ref:
         description: Git ref containing the NSIS setup definition
         required: true
