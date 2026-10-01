@@ -193,23 +193,26 @@ jobs:
 
       - name: Set up Android SDK command-line tools
         uses: android-actions/setup-android@v4
+        with:
+          accept-android-sdk-licenses: false
+          log-accepted-android-sdk-licenses: false
+          packages: ''
 
       - name: Install Android build dependencies
         run: |
-          # sdkmanager closes stdin after accepting its prompts. Ignore the
-          # expected SIGPIPE from `yes`, but keep sdkmanager failures fatal.
+          # Use Google's current Android SDK CLI. The legacy sdkmanager emits
+          # a deprecation warning from current command-line tool packages.
           set +o pipefail
-          yes | sdkmanager --licenses >/dev/null
-          sdkmanager_exit=${PIPESTATUS[1]}
+          yes 2>/dev/null | android --no-metrics --sdk="$ANDROID_HOME" sdk install \
+            platform-tools \
+            platforms/android-37.0 \
+            build-tools/36.0.0 \
+            ndk/28.2.13676358 \
+            cmake/3.22.1
+          android_cli_exit=${PIPESTATUS[1]}
           set -o pipefail
-          test "$sdkmanager_exit" -eq 0
+          test "$android_cli_exit" -eq 0
           bash scripts/install-linux-build-deps.sh nasm
-          sdkmanager --install \
-            'platform-tools' \
-            'platforms;android-37.0' \
-            'build-tools;36.0.0' \
-            'ndk;28.2.13676358' \
-            'cmake;3.22.1'
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
@@ -823,21 +826,24 @@ jobs:
       - name: Set up Android SDK command-line tools
         if: matrix.language == 'java-kotlin'
         uses: android-actions/setup-android@v4
+        with:
+          accept-android-sdk-licenses: false
+          log-accepted-android-sdk-licenses: false
+          packages: ''
 
       - name: Install Android compile dependencies
         if: matrix.language == 'java-kotlin'
         run: |
-          # sdkmanager closes stdin after accepting its prompts. Ignore the
-          # expected SIGPIPE from `yes`, but keep sdkmanager failures fatal.
+          # Use Google's current Android SDK CLI. The legacy sdkmanager emits
+          # a deprecation warning from current command-line tool packages.
           set +o pipefail
-          yes | sdkmanager --licenses >/dev/null
-          sdkmanager_exit=${PIPESTATUS[1]}
+          yes 2>/dev/null | android --no-metrics --sdk="$ANDROID_HOME" sdk install \
+            platform-tools \
+            platforms/android-37.0 \
+            build-tools/36.0.0
+          android_cli_exit=${PIPESTATUS[1]}
           set -o pipefail
-          test "$sdkmanager_exit" -eq 0
-          sdkmanager --install \
-            'platform-tools' \
-            'platforms;android-37.0' \
-            'build-tools;36.0.0'
+          test "$android_cli_exit" -eq 0
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
