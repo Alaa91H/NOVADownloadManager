@@ -725,6 +725,21 @@ jobs:
           cp src-tauri/target/release/nova-native-backend "$macos_bin/"
           cp src-tauri/target/release/nova-native-host "$macos_bin/"
           chmod 0755 "$macos_bin/nova-native-backend" "$macos_bin/nova-native-host"
+          if grep -R -n -E '(^|[[:space:]])import[[:space:]]+QtSql|(^|[[:space:]])import[[:space:]]+Qt\.sql|Qt6::Sql|Qt::Sql|QSql[A-Za-z]*' desktop-native/qml desktop-native/CMakeLists.txt; then
+            echo "::error::The native desktop now uses Qt SQL; review SQL driver deployment before excluding unused drivers."
+            exit 1
+          fi
+          qt_plugins="$(qmake -query QT_INSTALL_PLUGINS)"
+          test -d "$qt_plugins"
+          sql_plugins="$qt_plugins/sqldrivers"
+          sql_plugins_stash="$RUNNER_TEMP/nova-unused-qt-sqldrivers"
+          if [ -d "$sql_plugins" ]; then
+            if [ -e "$sql_plugins_stash" ]; then
+              echo "::error::The temporary Qt SQL plugin staging path already exists."
+              exit 1
+            fi
+            mv "$sql_plugins" "$sql_plugins_stash"
+          fi
           macdeployqt "$app" -qmldir=desktop-native/qml -appstore-compliant
           test -x "$macos_bin/nova-native-backend"
           test -x "$macos_bin/nova-native-host"

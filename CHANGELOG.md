@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.52-alpha] - 2026-10-01
+
+### Fixed
+
+- Prevented macOS Qt deployment from warning about unused SQL driver plugins by keeping them out of the deployment tool's plugin search path.
+- Added a dependency guard that fails packaging if the native desktop begins using Qt SQL, so required drivers cannot be excluded silently.
+
 ## [2.4.51-alpha] - 2026-10-01
 
 ### Fixed
