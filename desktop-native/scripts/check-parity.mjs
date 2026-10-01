@@ -135,6 +135,7 @@ if (manifest.releaseReplacementReady && incompleteCount > 0) {
 
 const requireComplete = process.argv.includes("--require-complete")
   || process.env.NOVA_REQUIRE_COMPLETE_PARITY === "1";
+const expectIncomplete = process.argv.includes("--expect-incomplete");
 if (requireComplete && incompleteCount > 0) {
   errors.push(
     `Native production readiness requires all capabilities covered; remaining: ${partial} partial, ${gap} gap, ${blocked} blocked.`
@@ -142,6 +143,12 @@ if (requireComplete && incompleteCount > 0) {
 }
 if (requireComplete && !manifest.releaseReplacementReady) {
   errors.push("Native production readiness requires releaseReplacementReady=true.");
+}
+if (expectIncomplete && incompleteCount === 0) {
+  errors.push("Expected production parity to remain incomplete, but every capability is covered.");
+}
+if (expectIncomplete && manifest.releaseReplacementReady) {
+  errors.push("Expected releaseReplacementReady to remain false until production release evidence is complete.");
 }
 
 if (errors.length > 0) fail(errors);
@@ -179,5 +186,5 @@ lines.push(
 
 fs.writeFileSync(reportPath, lines.join("\n"), "utf8");
 
-console.log(`Parity manifest validated: ${covered} covered, ${partial} partial, ${gap} gaps, ${blocked} blocked; replacement-ready=${manifest.releaseReplacementReady}.`);
+console.log(`Parity manifest validated: ${covered} covered, ${partial} partial, ${gap} gaps, ${blocked} blocked; replacement-ready=${manifest.releaseReplacementReady}${expectIncomplete ? "; expected-incomplete=true" : ""}.`);
 console.log(`Report written to ${path.relative(repoRoot, reportPath)}`);
