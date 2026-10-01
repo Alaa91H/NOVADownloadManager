@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.50-alpha] - 2026-10-01
+
+### Fixed
+
+- Prevented the bundled Windows backend from opening a console window when NOVA starts.
+- Corrected native desktop auto-pairing so the desktop client can discover and authenticate with the local NOVA engine without a stale pairing-file dependency.
+- Made the frameless desktop window maximize within the usable screen area, preserving the Windows taskbar and reserved desktop space.
+- Improved Arabic settings layouts with responsive widths, clearer switch labels, and scrollable content.
+- Selected the Qt Quick Controls Basic style before loading the interface to support NOVA's customized controls consistently.
+- Guarded optional torrent reauthentication state against undefined QML values.
+
+### Build and release validation
+
+- Added desktop runtime regression checks for backend startup, window geometry, Arabic settings layout, and QML style configuration.
+- Updated the native parity evidence for the desktop pairing contract and regenerated shared design-token outputs.
+- Fixed Rust formatting in the desktop auto-pairing regression tests.
+
+### Alpha scope
+
+- This build is an alpha preview. Some cross-platform parity and live-device acceptance gates remain incomplete; the signed automatic updater remains intentionally disabled until its production endpoint and verification key are configured.
+
 ## [2.4.49-alpha] - 2026-09-25
 
 ### Highlights

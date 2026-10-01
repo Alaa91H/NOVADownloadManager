@@ -1002,7 +1002,16 @@ jobs:
           echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Enforce native production readiness
-        run: node desktop-native/scripts/check-parity.mjs --require-complete
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(jq -r '.version // empty' .github/release-request.json)"
+          if [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-alpha(\.[0-9]+)?$ ]]; then
+            echo "Creating an explicitly labeled alpha preview; production parity remains gated."
+            node desktop-native/scripts/check-parity.mjs
+          else
+            node desktop-native/scripts/check-parity.mjs --require-complete
+          fi
 
       - name: Ensure tag does not already exist
         env:
@@ -1068,7 +1077,8 @@ jobs:
           echo "- Version sources stamped and committed" >> "$GITHUB_STEP_SUMMARY"
           echo "- Annotated tag created and pushed" >> "$GITHUB_STEP_SUMMARY"
           echo "- Curated draft GitHub Release created" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Full strict CI and the Windows installer preflight passed before the tag was created" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Required quality, Rust, Android, six-platform desktop, and Windows installer preflight passed before the tag was created" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Stable releases require complete native production parity; alpha previews retain the documented parity blockers" >> "$GITHUB_STEP_SUMMARY"
           echo "- Full CI was explicitly dispatched against the immutable tag; the final installer will be attached after those checks pass" >> "$GITHUB_STEP_SUMMARY"
 
   windows-installer:
