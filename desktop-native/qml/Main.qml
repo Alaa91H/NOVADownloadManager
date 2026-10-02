@@ -270,19 +270,14 @@ ApplicationWindow {
                         onClicked: nativeSettings.sidebarVisible = !nativeSettings.sidebarVisible
                     }
 
-                    Rectangle {
-                        Layout.preferredWidth: 28
-                        Layout.preferredHeight: 28
-                        radius: 7
-                        color: Theme.accent
-
-                        Text {
-                            anchors.centerIn: parent
-                            text: "N"
-                            color: "white"
-                            font.pixelSize: Theme.fontMedium
-                            font.weight: Font.Bold
-                        }
+                    Image {
+                        id: novaBrandMark
+                        source: "qrc:/qt/qml/Nova/Native/nova-mark.png"
+                        Layout.preferredWidth: 34
+                        Layout.preferredHeight: 34
+                        fillMode: Image.PreserveAspectFit
+                        smooth: true
+                        Accessible.ignored: true
                     }
 
                     Text {
@@ -290,6 +285,8 @@ ApplicationWindow {
                         color: Theme.textPrimary
                         font.pixelSize: Theme.fontMedium
                         font.weight: Font.DemiBold
+                        Layout.maximumWidth: 230
+                        elide: Text.ElideRight
                     }
 
                     Item { Layout.fillWidth: true }
@@ -323,6 +320,60 @@ ApplicationWindow {
                     }
 
                     ToolButton {
+                        id: customizationButton
+                        checkable: true
+                        checked: window.customizationOpen
+                        text: ""
+                        Layout.preferredWidth: 38
+                        Layout.preferredHeight: 38
+                        Accessible.name: window.t("custom.open")
+                        ToolTip.text: window.t("custom.open")
+                        onClicked: window.customizationOpen = !window.customizationOpen
+
+                        background: Rectangle {
+                            radius: Theme.radiusMedium
+                            color: customizationButton.checked
+                                ? Theme.surfaceSelected
+                                : customizationButton.hovered ? Theme.surfaceHover : "transparent"
+                            border.width: customizationButton.activeFocus ? 2 : 0
+                            border.color: Theme.focusRing
+                        }
+
+                        contentItem: Item {
+                            implicitWidth: 18
+                            implicitHeight: 18
+                            Repeater {
+                                model: [3, 9, 15]
+                                delegate: Rectangle {
+                                    required property int modelData
+                                    x: 1
+                                    y: modelData
+                                    width: 16
+                                    height: 1.5
+                                    radius: 1
+                                    color: customizationButton.checked ? Theme.accent : Theme.textSecondary
+                                }
+                            }
+                            Repeater {
+                                model: [6, 12, 4]
+                                delegate: Rectangle {
+                                    required property int modelData
+                                    required property int index
+                                    x: index === 0 ? 5 : index === 1 ? 11 : 8
+                                    y: index === 0 ? 1 : index === 1 ? 7 : 13
+                                    width: 4
+                                    height: 5
+                                    radius: 2
+                                    color: Theme.surface
+                                    border.width: 1
+                                    border.color: customizationButton.checked ? Theme.accent : Theme.textSecondary
+                                }
+                            }
+                        }
+                    }
+
+                    ToolButton {
+                        id: settingsButton
                         text: "⚙"
                         Layout.preferredWidth: 38
                         Layout.preferredHeight: 38

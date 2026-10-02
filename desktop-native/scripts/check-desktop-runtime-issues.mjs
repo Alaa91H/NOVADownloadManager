@@ -75,6 +75,18 @@ requireMatch(
     && /onClicked: \{\s*window\.customizationOpen = false\s*window\.currentPage = "settings"/.test(mainQml),
   "The top-bar gear must navigate to application settings instead of opening appearance customization.",
 );
+requireMatch(
+  /source:\s*"qrc:\/qt\/qml\/Nova\/Native\/nova-mark\.png"/.test(mainQml)
+    && /QT_RESOURCE_ALIAS nova-mark\.png/.test(
+      readFileSync(new URL("../../desktop-native/CMakeLists.txt", import.meta.url), "utf8"),
+    ),
+  "The top bar must use the packaged NOVA logo resource instead of a text-only mark.",
+);
+requireMatch(
+  /id:\s*customizationButton[\s\S]{0,450}Accessible\.name:\s*window\.t\("custom\.open"\)[\s\S]{0,200}customizationOpen = !window\.customizationOpen/.test(mainQml)
+    && /id:\s*settingsButton[\s\S]{0,350}Accessible\.name:\s*window\.t\("nav\.settings"\)[\s\S]{0,220}window\.currentPage = "settings"/.test(mainQml),
+  "The header must provide distinct, labeled controls for app settings and quick customization.",
+);
 
 if (failures.length > 0) {
   for (const failure of failures) console.error(`FAIL: ${failure}`);

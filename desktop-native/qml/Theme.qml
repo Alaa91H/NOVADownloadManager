@@ -38,7 +38,7 @@ QtObject {
     readonly property int navigationCollapsedWidth: Math.round(62 * Math.max(1.0, fontScale))
     readonly property int navigationExpandedWidth: Math.round(206 * Math.max(1.0, fontScale))
     readonly property int detailsWidth: Math.round(356 * Math.max(1.0, fontScale))
-    readonly property int customizationWidth: Math.round(292 * Math.max(1.0, fontScale))
+    readonly property int customizationWidth: Math.round(320 * Math.max(1.0, fontScale))
     readonly property int commandHeight: Math.round(52 * densityScale * Math.max(1.0, fontScale))
     readonly property int rowHeight: Math.round(54 * densityScale * Math.max(1.0, fontScale))
     readonly property int spaceScreenHorizontal: 20

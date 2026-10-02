@@ -1265,6 +1265,18 @@ Item {
                     spacing: 8
                     visible: list.count === 0
 
+                    Image {
+                        Layout.alignment: Qt.AlignHCenter
+                        Layout.preferredWidth: 58
+                        Layout.preferredHeight: 58
+                        visible: root.query.length === 0 && root.page === "downloads"
+                        source: "qrc:/qt/qml/Nova/Native/nova-mark.png"
+                        fillMode: Image.PreserveAspectFit
+                        smooth: true
+                        opacity: 0.92
+                        Accessible.ignored: true
+                    }
+
                     Text {
                         Layout.alignment: Qt.AlignHCenter
                         text: root.query.length > 0

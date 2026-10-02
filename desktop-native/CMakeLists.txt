@@ -42,6 +42,10 @@ qt_add_executable(nova-native
 )
 
 set_source_files_properties(qml/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+set_source_files_properties(
+    resources/icons/128x128.png
+    PROPERTIES QT_RESOURCE_ALIAS nova-mark.png
+)
 
 qt_add_qml_module(nova-native
     URI Nova.Native
@@ -73,6 +77,8 @@ qt_add_qml_module(nova-native
         qml/pages/QueuePage.qml
         qml/pages/SchedulerPage.qml
         qml/pages/SettingsPage.qml
+    RESOURCES
+        resources/icons/128x128.png
 )
 
 target_include_directories(nova-native PRIVATE src)

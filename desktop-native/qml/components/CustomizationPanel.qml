@@ -257,10 +257,65 @@ Rectangle {
 
                 Switch {
                     Layout.fillWidth: true
+                    Layout.minimumHeight: 38
                     text: root.t("custom.showStatus")
                     checked: root.settings.statusBarVisible
                     Accessible.name: text
                     onToggled: root.settings.statusBarVisible = checked
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 1
+                    color: Theme.border
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 8
+
+                    Text {
+                        text: root.t("settings.fontScale")
+                        color: Theme.textPrimary
+                        font.pixelSize: Theme.fontBody
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                    }
+
+                    Text {
+                        text: Math.round(root.settings.fontScale * 100) + "%"
+                        color: Theme.textSecondary
+                        font.pixelSize: Theme.fontSmall
+                        font.family: "monospace"
+                    }
+                }
+
+                Slider {
+                    Layout.fillWidth: true
+                    from: 0.85
+                    to: 1.35
+                    stepSize: 0.05
+                    value: root.settings.fontScale
+                    Accessible.name: root.t("settings.fontScale")
+                    onMoved: root.settings.fontScale = value
+                }
+
+                Switch {
+                    Layout.fillWidth: true
+                    Layout.minimumHeight: 38
+                    text: root.t("settings.highContrast")
+                    checked: root.settings.highContrast
+                    Accessible.name: text
+                    onToggled: root.settings.highContrast = checked
+                }
+
+                Switch {
+                    Layout.fillWidth: true
+                    Layout.minimumHeight: 38
+                    text: root.t("settings.reducedMotion")
+                    checked: root.settings.reducedMotion
+                    Accessible.name: text
+                    onToggled: root.settings.reducedMotion = checked
                 }
 
                 Rectangle {
