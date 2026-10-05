@@ -2537,7 +2537,7 @@ dependencies = [
  "flate2",
  "flexi_logger",
  "futures-core",
- "hmac 0.12.1",
+ "hmac 0.13.0",
  "keyring",
  "log",
  "md-5",
